@@ -155,11 +155,22 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
             val user = firebaseAuth.currentUser
             _isLoggedIn.value = user != null
             if (user != null) {
-                _userName.value = user.displayName ?: "User"
+                // Initial values from auth/prefs
+                _userName.value = user.displayName ?: sharedPrefs?.getString("user_name", "User") ?: "User"
                 _userEmail.value = user.email ?: ""
-                _userAvatar.value = "👤"
+                _userAvatar.value = sharedPrefs?.getString("user_avatar", "👤") ?: "👤"
+                
                 viewModelScope.launch {
-                    repository.syncFromCloud()
+                    repository.syncFromCloud { name, avatar ->
+                        // Callback to update UI when cloud data is downloaded
+                        _userName.value = name
+                        _userAvatar.value = avatar
+                        sharedPrefs?.edit()?.apply {
+                            putString("user_name", name)
+                            putString("user_avatar", avatar)
+                            apply()
+                        }
+                    }
                 }
             }
         }
@@ -223,8 +234,10 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
             val dayName = getDayTypeName(dayType)
             val currentCount = workoutCounts.value.find { it.dayType == dayType }?.count ?: 0
             val name = _userName.value
+            val avatar = _userAvatar.value
             
             _encouragementMessage.value = "Wah $name, sudah latihan $dayName ya hari ini! Mantap nih nambah jadi ${currentCount}x! 🔥"
+            repository.syncToCloud(mapOf("name" to name, "avatar" to avatar)) // Ensure profile stays synced on any update
             repository.addHistoryLog("Menambah akumulasi 1 sesi latihan $dayName.")
         }
     }
@@ -380,7 +393,7 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun updateProfile(name: String, email: String, avatar: String) {
-        sharedPrefs.edit().apply {
+        sharedPrefs?.edit()?.apply {
             putString("user_name", name)
             putString("user_email", email)
             putString("user_avatar", avatar)
@@ -390,6 +403,7 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
         _userEmail.value = email
         _userAvatar.value = avatar
         viewModelScope.launch {
+            repository.syncToCloud(mapOf("name" to name, "avatar" to avatar))
             repository.addHistoryLog("Profil: Memperbarui nama ($name) & foto profil.")
         }
     }
@@ -524,30 +538,45 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
             val hour = now.get(Calendar.HOUR_OF_DAY)
             val dayName = SimpleDateFormat("EEEE", Locale("id", "ID")).format(now.time)
             
+            val timePeriod = when (hour) {
+                in 0..4 -> "Dini Hari (Waktunya Tidur)"
+                in 5..10 -> "Pagi Hari"
+                in 11..14 -> "Siang Hari"
+                in 15..18 -> "Sore Hari"
+                else -> "Malam Hari"
+            }
+
+            val fullSchedule = weeklySchedule.value.joinToString("\n") { "• ${it.dayName}: ${it.activity}" }
+            val todayActivity = weeklySchedule.value.find { it.dayName.equals(dayName, ignoreCase = true) }?.activity ?: "Tidak ada jadwal"
+
             val name = _userName.value
             
             val contextPrompt = """
                 Kamu adalah Coach AI Pintar untuk $name. Kamu memiliki akses ke seluruh data harian user.
                 
-                Waktu Sekarang: $hour:00, Hari: $dayName.
+                WAKTU SEKARANG: ${String.format("%02d:00", hour)}, Periode: $timePeriod, Hari: $dayName.
+                JADWAL LATIHAN USER HARI INI ($dayName): $todayActivity.
                 
-                Data Latihan Terakumulasi:
+                JADWAL MINGGUAN LENGKAP USER:
+                $fullSchedule
+                
+                DATA LATIHAN TERAKUMULASI:
                 - Leg Day: $leg kali, Push Day: $push kali, Pull Day: $pull kali.
                 
-                Status List Gerakan Hari Ini:
+                STATUS LIST GERAKAN HARI INI:
                 - Sudah Selesai: ${if (completedExercises.isBlank()) "Belum ada" else completedExercises}
                 - Belum Selesai: ${if (pendingExercises.isBlank()) "Semua sudah selesai!" else pendingExercises}
                 
-                Asupan Protein Hari Ini:
+                ASUPAN PROTEIN HARI INI:
                 - Telur: $eggs, Ikan: $fish, Pea Protein: $pea.
                 
-                Tugasmu:
-                1. Berikan evaluasi yang sangat personal berdasarkan data di atas.
-                2. Berikan saran aktivitas spesifik sesuai JAM SEKARANG (misal: jam 7 pagi suruh berjemur, jam 4 sore suruh latihan, jam 10 malam suruh tidur).
-                3. Jika ada list gerakan yang belum selesai, beri motivasi untuk menyelesaikannya.
-                4. Jika asupan protein kurang, ingatkan untuk makan protein.
+                TUGAS UTAMAMU:
+                1. Prioritaskan JADWAL LATIHAN USER HARI INI. Jika jadwalnya "Rest Day", JANGAN suruh user latihan berat, sarankan pemulihan.
+                2. Berikan saran aktivitas spesifik sesuai JAM SEKARANG (Format 24 Jam). Ingat: 02:00 adalah dini hari/pagi buta, 14:00 adalah siang hari.
+                3. Jika jam sekarang adalah jam tidur (23:00 - 04:00), perintahkan user untuk segera tidur.
+                4. Evaluasi asupan protein dan list gerakan yang tertinggal.
                 
-                Gunakan gaya bahasa pelatih profesional, akrab, singkat, padat, dan memotivasi. 
+                Gunakan gaya bahasa pelatih profesional yang akrab, singkat, padat, dan memotivasi.
                 Panggil user "$name". Hindari kata basi seperti "ya betul".
                 Tulis dalam Bahasa Indonesia yang apik.
             """.trimIndent()

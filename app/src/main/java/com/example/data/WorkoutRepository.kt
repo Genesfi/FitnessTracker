@@ -153,7 +153,7 @@ class WorkoutRepository(private val dao: WorkoutDao) {
         syncToCloud()
     }
 
-    suspend fun syncFromCloud() {
+    suspend fun syncFromCloud(onProfileRestored: (String, String) -> Unit = { _, _ -> }) {
         val userId = auth.currentUser?.uid ?: return
         _syncStatus.value = "Menghubungkan ke Cloud..."
         try {
@@ -161,14 +161,22 @@ class WorkoutRepository(private val dao: WorkoutDao) {
             if (snapshot.exists()) {
                 val data = snapshot.data ?: return
                 
-                // 1. Restore Workout Counts
+                // 1. Restore Profile (Custom Name & Avatar)
+                val profileData = data["profile"] as? Map<String, String>
+                val restoredName = profileData?.get("name")
+                val restoredAvatar = profileData?.get("avatar")
+                if (restoredName != null && restoredAvatar != null) {
+                    onProfileRestored(restoredName, restoredAvatar)
+                }
+
+                // 2. Restore Workout Counts
                 val countsData = data["counts"] as? Map<String, Long>
                 countsData?.forEach { (dayType, count) ->
                     val current = dao.getCountByDayType(dayType)
                     if (current != null) dao.insertOrUpdateCount(current.copy(count = count.toInt()))
                 }
 
-                // 2. Restore Exercise Checklist
+                // 3. Restore Exercise Checklist
                 val checklistData = data["checklist"] as? List<Map<String, Any>>
                 checklistData?.map { 
                     ExerciseChecklistItem(
@@ -179,7 +187,7 @@ class WorkoutRepository(private val dao: WorkoutDao) {
                     )
                 }?.let { dao.insertExerciseChecklist(it) }
 
-                // 3. Restore Reminders
+                // 4. Restore Reminders
                 val remindersData = data["reminders"] as? List<Map<String, Any>>
                 remindersData?.forEach {
                     dao.insertReminder(WorkoutReminder(
@@ -190,7 +198,7 @@ class WorkoutRepository(private val dao: WorkoutDao) {
                     ))
                 }
 
-                // 4. Restore Weekly Schedule
+                // 5. Restore Weekly Schedule
                 val scheduleData = data["schedule"] as? List<Map<String, Any>>
                 scheduleData?.map {
                     WeeklySchedule(
@@ -200,8 +208,7 @@ class WorkoutRepository(private val dao: WorkoutDao) {
                     )
                 }?.let { dao.insertWeeklySchedule(it) }
 
-                // 5. Restore Protein Intake (Simplification: only current date or all?)
-                // For now, let's just restore whatever was in the backup
+                // 6. Restore Protein Intake
                 val proteinData = data["protein"] as? List<Map<String, Any>>
                 proteinData?.forEach {
                     dao.updateProteinIntake(ProteinIntake(
@@ -222,7 +229,7 @@ class WorkoutRepository(private val dao: WorkoutDao) {
         }
     }
 
-    private suspend fun syncToCloud() {
+    suspend fun syncToCloud(profile: Map<String, String>? = null) {
         val userId = auth.currentUser?.uid ?: return
         _syncStatus.value = "Menyimpan ke Cloud..."
         try {
@@ -230,13 +237,9 @@ class WorkoutRepository(private val dao: WorkoutDao) {
             val checklist = dao.getAllExerciseChecklist().firstOrNull() ?: emptyList()
             val reminders = dao.getAllReminders().firstOrNull() ?: emptyList()
             val schedule = dao.getWeeklySchedule().firstOrNull() ?: emptyList()
-            // Just sync all protein records for simplicity in this workout app
-            // In a real app we might paginate or only sync recent
-            // Note: WorkoutDao needs a way to get ALL protein intake
-            // But for now, we'll just skip protein sync or add a query if needed.
-            // Let's stick to the others first to be safe.
 
-            val fullBackup = mapOf(
+            // Construct backup map
+            val backupMap = mutableMapOf<String, Any>(
                 "counts" to counts.associate { it.dayType to it.count },
                 "checklist" to checklist.map { mapOf("name" to it.name, "category" to it.category, "note" to it.note, "isCompleted" to it.isCompleted) },
                 "reminders" to reminders.map { mapOf("time" to it.time, "label" to it.label, "days" to it.days, "isActive" to it.isActive) },
@@ -244,8 +247,11 @@ class WorkoutRepository(private val dao: WorkoutDao) {
                 "last_updated" to System.currentTimeMillis()
             )
 
+            // Include profile if provided, otherwise keep existing or placeholder
+            profile?.let { backupMap["profile"] = it }
+
             firestore.collection("users").document(userId).collection("data").document("full_backup")
-                .set(fullBackup)
+                .set(backupMap, com.google.firebase.firestore.SetOptions.merge())
                 .addOnSuccessListener { _syncStatus.value = "Tersimpan di Cloud" }
                 .addOnFailureListener { _syncStatus.value = "Gagal Menyimpan" }
         } catch (e: Exception) {
