@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Glowing secure outer aesthetic circle -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#22E4A8"
+        android:strokeWidth="2.5"
+        android:pathData="M 54,22 A 32,32 0 1,1 53.99,22 Z" />
+
+    <!-- Barbell handle bar -->
+    <path
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:strokeColor="#FFFFFF"
+        android:pathData="M 32,54 L 76,54" />
+
+    <!-- Left big weight plate -->
+    <path
+        android:fillColor="#10B981"
+        android:pathData="M 28,40 C 28,37 32,37 32,40 L 32,68 C 32,71 28,71 28,68 Z" />
+
+    <!-- Left small weight plate -->
+    <path
+        android:fillColor="#34D399"
+        android:pathData="M 22,46 C 22,44 26,44 26,46 L 26,62 C 26,64 22,64 22,62 Z" />
+
+    <!-- Right big weight plate -->
+    <path
+        android:fillColor="#10B981"
+        android:pathData="M 76,40 C 76,37 80,37 80,40 L 80,68 C 80,71 76,71 76,68 Z" />
+
+    <!-- Right small weight plate -->
+    <path
+        android:fillColor="#34D399"
+        android:pathData="M 82,46 C 82,44 86,44 86,46 L 86,62 C 86,64 82,64 82,62 Z" />
+
+    <!-- Central Gym Lock / Shield overlay -->
+    <!-- Shield shape -->
+    <path
+        android:pathData="M 54,34 L 66,39 L 66,51 C 66,61 60,67 54,71 C 48,67 42,61 42,51 L 42,39 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="42"
+                android:startY="34"
+                android:endX="66"
+                android:endY="71">
+                <item android:offset="0.0" android:color="#F59E0B" /> <!-- Tech Gold -->
+                <item android:offset="1.0" android:color="#D97706" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Keyhole cutout on the shield -->
+    <path
+        android:fillColor="#0D0E15"
+        android:pathData="M 54,46 A 2.5,2.5 0 1,0 54,51 L 55.5,58 L 52.5,58 Z" />
+</vector>

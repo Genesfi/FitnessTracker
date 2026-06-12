@@ -1,0 +1,6 @@
+{
+  "name": "Gusti Workout Tracker",
+  "description": "A secure workout tracker, reminder scheduler, progress logger, and AI personal training coach for Gusti.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
