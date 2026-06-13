@@ -5,108 +5,94 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Athletic Cohesive 4-Phase Activity Loop Ring -->
-    <!-- Top-Right Segment: Deep Athletic Blue -->
-    <path
-        android:strokeWidth="7"
-        android:strokeLineCap="round"
-        android:strokeColor="#004F9F"
-        android:fillColor="#00000000"
-        android:pathData="M 54,24 A 30,30 0 0,1 84,54" />
+    <group
+        android:scaleX="0.75"
+        android:scaleY="0.75"
+        android:pivotX="54"
+        android:pivotY="54"
+        android:translateX="0"
+        android:translateY="0">
 
-    <!-- Bottom-Right Segment: Brilliant Royal Blue -->
-    <path
-        android:strokeWidth="7"
-        android:strokeLineCap="round"
-        android:strokeColor="#2196F3"
-        android:fillColor="#00000000"
-        android:pathData="M 84,54 A 30,30 0 0,1 54,84" />
+        <path
+            android:strokeWidth="7"
+            android:strokeLineCap="round"
+            android:strokeColor="#004F9F"
+            android:fillColor="#00000000"
+            android:pathData="M 54,24 A 30,30 0 0,1 84,54" />
+        <path
+            android:strokeWidth="7"
+            android:strokeLineCap="round"
+            android:strokeColor="#2196F3"
+            android:fillColor="#00000000"
+            android:pathData="M 84,54 A 30,30 0 0,1 54,84" />
+        <path
+            android:strokeWidth="7"
+            android:strokeLineCap="round"
+            android:strokeColor="#00E5FF"
+            android:fillColor="#00000000"
+            android:pathData="M 54,84 A 30,30 0 0,1 24,54" />
+        <path
+            android:strokeWidth="7"
+            android:strokeLineCap="round"
+            android:strokeColor="#00B0FF"
+            android:fillColor="#00000000"
+            android:pathData="M 24,54 A 30,30 0 0,1 54,24" />
 
-    <!-- Bottom-Left Segment: Vibrant Teal-Cyan -->
-    <path
-        android:strokeWidth="7"
-        android:strokeLineCap="round"
-        android:strokeColor="#00E5FF"
-        android:fillColor="#00000000"
-        android:pathData="M 54,84 A 30,30 0 0,1 24,54" />
+        <path
+            android:strokeWidth="11"
+            android:strokeLineCap="round"
+            android:strokeColor="#FFFFFF"
+            android:pathData="M 22,54 L 86,54" />
+        <path
+            android:strokeWidth="15"
+            android:strokeLineCap="round"
+            android:strokeColor="#FFFFFF"
+            android:pathData="M 34,34 L 34,74" />
+        <path
+            android:strokeWidth="13"
+            android:strokeLineCap="round"
+            android:strokeColor="#FFFFFF"
+            android:pathData="M 24,42 L 24,66" />
+        <path
+            android:strokeWidth="15"
+            android:strokeLineCap="round"
+            android:strokeColor="#FFFFFF"
+            android:pathData="M 74,34 L 74,74" />
+        <path
+            android:strokeWidth="13"
+            android:strokeLineCap="round"
+            android:strokeColor="#FFFFFF"
+            android:pathData="M 84,42 L 84,66" />
 
-    <!-- Top-Left Segment: Energetic Light Sky Blue -->
-    <path
-        android:strokeWidth="7"
-        android:strokeLineCap="round"
-        android:strokeColor="#00B0FF"
-        android:fillColor="#00000000"
-        android:pathData="M 24,54 A 30,30 0 0,1 54,24" />
+        <path
+            android:strokeWidth="5"
+            android:strokeLineCap="round"
+            android:strokeColor="#0061A4"
+            android:pathData="M 22,54 L 86,54" />
+        <path
+            android:strokeWidth="9"
+            android:strokeLineCap="round"
+            android:strokeColor="#0061A4"
+            android:pathData="M 34,34 L 34,74" />
+        <path
+            android:strokeWidth="7"
+            android:strokeLineCap="round"
+            android:strokeColor="#0061A4"
+            android:pathData="M 24,42 L 24,66" />
+        <path
+            android:strokeWidth="9"
+            android:strokeLineCap="round"
+            android:strokeColor="#0061A4"
+            android:pathData="M 74,34 L 74,74" />
+        <path
+            android:strokeWidth="7"
+            android:strokeLineCap="round"
+            android:strokeColor="#0061A4"
+            android:pathData="M 84,42 L 84,66" />
 
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M 54,50.5 A 3.5,3.5 0 1,1 53.9,50.5 Z" />
 
-    <!-- Premium Centered Barbell in signature GymPrimary blue -->
-    <!-- Gives weight, focus, and directly bridges with the Gusti tracker branding -->
-
-    <!-- White backing shadow trace to insulate barbell from the colorful ring for clean contrast -->
-    <path
-        android:strokeWidth="11"
-        android:strokeLineCap="round"
-        android:strokeColor="#FFFFFF"
-        android:pathData="M 22,54 L 86,54" />
-    <path
-        android:strokeWidth="15"
-        android:strokeLineCap="round"
-        android:strokeColor="#FFFFFF"
-        android:pathData="M 34,34 L 34,74" />
-    <path
-        android:strokeWidth="13"
-        android:strokeLineCap="round"
-        android:strokeColor="#FFFFFF"
-        android:pathData="M 24,42 L 24,66" />
-    <path
-        android:strokeWidth="15"
-        android:strokeLineCap="round"
-        android:strokeColor="#FFFFFF"
-        android:pathData="M 74,34 L 74,74" />
-    <path
-        android:strokeWidth="13"
-        android:strokeLineCap="round"
-        android:strokeColor="#FFFFFF"
-        android:pathData="M 84,42 L 84,66" />
-
-    <!-- Active Barbell Elements -->
-    <!-- Central Barbell Shaft -->
-    <path
-        android:strokeWidth="5"
-        android:strokeLineCap="round"
-        android:strokeColor="#0061A4"
-        android:pathData="M 22,54 L 86,54" />
-
-    <!-- Left Plate 1 (Inner Heavy) -->
-    <path
-        android:strokeWidth="9"
-        android:strokeLineCap="round"
-        android:strokeColor="#0061A4"
-        android:pathData="M 34,34 L 34,74" />
-
-    <!-- Left Plate 2 (Outer Light) -->
-    <path
-        android:strokeWidth="7"
-        android:strokeLineCap="round"
-        android:strokeColor="#0061A4"
-        android:pathData="M 24,42 L 24,66" />
-
-    <!-- Right Plate 1 (Inner Heavy) -->
-    <path
-        android:strokeWidth="9"
-        android:strokeLineCap="round"
-        android:strokeColor="#0061A4"
-        android:pathData="M 74,34 L 74,74" />
-
-    <!-- Right Plate 2 (Outer Light) -->
-    <path
-        android:strokeWidth="7"
-        android:strokeLineCap="round"
-        android:strokeColor="#0061A4"
-        android:pathData="M 84,42 L 84,66" />
-
-    <!-- Core Center active focus dot representing fitness accuracy -->
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M 54,50.5 A 3.5,3.5 0 1,1 53.9,50.5 Z" />
+    </group>
 </vector>
