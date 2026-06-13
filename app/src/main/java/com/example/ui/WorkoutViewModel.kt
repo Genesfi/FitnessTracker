@@ -18,6 +18,7 @@ import com.example.data.WeeklySchedule
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInClient
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.auth.FirebaseUser
@@ -37,7 +38,7 @@ import java.util.Locale
 class WorkoutViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository: WorkoutRepository
-    private val auth = FirebaseAuth.getInstance()
+    private var auth: FirebaseAuth? = null
     private val sharedPrefs = application.getSharedPreferences("GustiWorkoutPrefs", Context.MODE_PRIVATE)
 
     private fun getCurrentDate(): String = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
@@ -51,17 +52,20 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
     }
 
     // Secure Simulated Login information flows
-    private val _isLoggedIn = MutableStateFlow(auth.currentUser != null)
+    private val _isLoggedIn = MutableStateFlow(false)
     val isLoggedIn: StateFlow<Boolean> = _isLoggedIn.asStateFlow()
 
-    private val _userName = MutableStateFlow(auth.currentUser?.displayName ?: sharedPrefs.getString("user_name", "Gusti Fitness") ?: "Gusti Fitness")
+    private val _userName = MutableStateFlow(sharedPrefs.getString("user_name", "Gusti Fitness") ?: "Gusti Fitness")
     val userName: StateFlow<String> = _userName.asStateFlow()
 
-    private val _userEmail = MutableStateFlow(auth.currentUser?.email ?: sharedPrefs.getString("user_email", "gusti.workout@gmail.com") ?: "gusti.workout@gmail.com")
+    private val _userEmail = MutableStateFlow(sharedPrefs.getString("user_email", "gusti.workout@gmail.com") ?: "gusti.workout@gmail.com")
     val userEmail: StateFlow<String> = _userEmail.asStateFlow()
 
-    private val _userAvatar = MutableStateFlow(if (auth.currentUser != null) "👤" else sharedPrefs.getString("user_avatar", "💪") ?: "💪")
+    private val _userAvatar = MutableStateFlow(sharedPrefs?.getString("user_avatar", "💪") ?: "💪")
     val userAvatar: StateFlow<String> = _userAvatar.asStateFlow()
+
+    private val _theme = MutableStateFlow(sharedPrefs?.getString("app_theme", "SYSTEM") ?: "SYSTEM")
+    val theme: StateFlow<String> = _theme.asStateFlow()
 
     // Exercise patterns - custom fine-grained set adjustments
     private val _exerciseSets = MutableStateFlow<Map<String, Int>>(emptyMap())
@@ -75,7 +79,11 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
     val isAnalyzing: StateFlow<Boolean> = _isAnalyzing.asStateFlow()
 
     // AI Coach Chat state
-    data class ChatMessage(val text: String, val isUser: Boolean)
+    data class ChatMessage(
+        val text: String,
+        val isUser: Boolean,
+        val id: String = java.util.UUID.randomUUID().toString()
+    )
     private val _chatMessages = MutableStateFlow<List<ChatMessage>>(listOf(
         ChatMessage("Halo! Saya Coach AI Anda. Ada yang bisa saya bantu dengan latihan atau nutrisi Anda hari ini?", false)
     ))
@@ -151,28 +159,48 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
     val isWorkoutDay: StateFlow<Boolean>
 
     init {
-        auth.addAuthStateListener { firebaseAuth ->
-            val user = firebaseAuth.currentUser
-            _isLoggedIn.value = user != null
-            if (user != null) {
-                // Initial values from auth/prefs
-                _userName.value = user.displayName ?: sharedPrefs?.getString("user_name", "User") ?: "User"
-                _userEmail.value = user.email ?: ""
-                _userAvatar.value = sharedPrefs?.getString("user_avatar", "👤") ?: "👤"
-                
-                viewModelScope.launch {
-                    repository.syncFromCloud { name, avatar ->
-                        // Callback to update UI when cloud data is downloaded
-                        _userName.value = name
-                        _userAvatar.value = avatar
-                        sharedPrefs?.edit()?.apply {
-                            putString("user_name", name)
-                            putString("user_avatar", avatar)
-                            apply()
+        try {
+            // First attempt to initialize with available google-services.json
+            FirebaseApp.initializeApp(application)
+            val firebaseAuth = FirebaseAuth.getInstance()
+            auth = firebaseAuth
+            
+            // Check for valid API key (placeholder check)
+            if (FirebaseApp.getInstance().options.apiKey == "MY_API_KEY") {
+                // Not configured properly
+            }
+            
+            _isLoggedIn.value = firebaseAuth.currentUser != null
+            _userName.value = firebaseAuth.currentUser?.displayName ?: sharedPrefs.getString("user_name", "Gusti Fitness") ?: "Gusti Fitness"
+            _userEmail.value = firebaseAuth.currentUser?.email ?: sharedPrefs.getString("user_email", "gusti.workout@gmail.com") ?: "gusti.workout@gmail.com"
+
+            firebaseAuth.addAuthStateListener { fa ->
+                val user = fa.currentUser
+                _isLoggedIn.value = user != null
+                if (user != null) {
+                    // Initial values from auth/prefs
+                    _userName.value = user.displayName ?: sharedPrefs?.getString("user_name", "User") ?: "User"
+                    _userEmail.value = user.email ?: ""
+                    _userAvatar.value = sharedPrefs?.getString("user_avatar", "👤") ?: "👤"
+                    
+                    viewModelScope.launch {
+                        repository.syncFromCloud { name, avatar, restoredTheme ->
+                            // Callback to update UI when cloud data is downloaded
+                            _userName.value = name
+                            _userAvatar.value = avatar
+                            restoredTheme?.let { _theme.value = it }
+                            sharedPrefs?.edit()?.apply {
+                                putString("user_name", name)
+                                putString("user_avatar", avatar)
+                                restoredTheme?.let { putString("app_theme", it) }
+                                apply()
+                            }
                         }
                     }
                 }
             }
+        } catch (e: Exception) {
+            // Firebase not available
         }
         val database = WorkoutDatabase.getDatabase(application)
         repository = WorkoutRepository(database.dao())
@@ -322,11 +350,15 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
 
     // User Profile login / simulation flows
     fun signInWithFirebaseWithGoogle(idToken: String, onResult: (Boolean, String) -> Unit) {
+        val firebaseAuth = auth ?: run {
+            onResult(false, "Firebase tidak tersedia.")
+            return
+        }
         val credential = GoogleAuthProvider.getCredential(idToken, null)
-        auth.signInWithCredential(credential)
+        firebaseAuth.signInWithCredential(credential)
             .addOnCompleteListener { task ->
                 if (task.isSuccessful) {
-                    val user = auth.currentUser
+                    val user = firebaseAuth.currentUser
                     if (user != null) {
                         _isLoggedIn.value = true
                         _userName.value = user.displayName ?: "User"
@@ -379,7 +411,7 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun logoutUser(context: Context) {
-        auth.signOut()
+        auth?.signOut()
         getGoogleSignInClient(context).signOut().addOnCompleteListener {
             sharedPrefs.edit().apply {
                 putBoolean("is_logged_in", false)
@@ -403,8 +435,22 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
         _userEmail.value = email
         _userAvatar.value = avatar
         viewModelScope.launch {
-            repository.syncToCloud(mapOf("name" to name, "avatar" to avatar))
+            repository.syncToCloud(
+                profile = mapOf("name" to name, "avatar" to avatar),
+                preferences = mapOf("theme" to _theme.value)
+            )
             repository.addHistoryLog("Profil: Memperbarui nama ($name) & foto profil.")
+        }
+    }
+
+    fun setTheme(newTheme: String) {
+        _theme.value = newTheme
+        sharedPrefs?.edit()?.putString("app_theme", newTheme)?.apply()
+        viewModelScope.launch {
+            repository.syncToCloud(
+                profile = mapOf("name" to _userName.value, "avatar" to _userAvatar.value),
+                preferences = mapOf("theme" to newTheme)
+            )
         }
     }
 
@@ -446,15 +492,24 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
             val currentLock = repository.getSecretLockDirect() ?: AppSecretLock()
             if (currentLock.isLocked) {
                 // Try to unlock
-                // Special case: if attempt is "BIOMETRIC_SUCCESS_BYPASS" or matching PIN
                 if (passcodeAttempt == "1234" || currentLock.passcode == passcodeAttempt) {
                     repository.updateSecretLock(currentLock.copy(isLocked = false))
-                    onResult(true, "Kunci berhasil dibuka!")
+                    onResult(true, "Kunci berhasil dibuka! (Terbuka selama 60 detik)")
+                    
+                    // Start automatic re-lock timer
+                    viewModelScope.launch {
+                        kotlinx.coroutines.delay(60000) // 60 seconds
+                        val latestLock = repository.getSecretLockDirect() ?: AppSecretLock()
+                        if (!latestLock.isLocked) {
+                            repository.updateSecretLock(latestLock.copy(isLocked = true))
+                            _encouragementMessage.value = "Papan skor otomatis dikunci demi keamanan! 🔐"
+                        }
+                    }
                 } else {
                     onResult(false, "Sandi PIN salah! Akses ditolak.")
                 }
             } else {
-                // Re-lock
+                // Re-lock manually
                 repository.updateSecretLock(currentLock.copy(isLocked = true))
                 onResult(true, "Papan skor berhasil dikunci aman!")
             }

@@ -11,8 +11,12 @@ import kotlinx.coroutines.tasks.await
 
 class WorkoutRepository(private val dao: WorkoutDao) {
 
-    private val firestore = FirebaseFirestore.getInstance()
-    private val auth = FirebaseAuth.getInstance()
+    private val firestore: FirebaseFirestore? by lazy { 
+        try { FirebaseFirestore.getInstance() } catch (e: Exception) { null } 
+    }
+    private val auth: FirebaseAuth? by lazy { 
+        try { FirebaseAuth.getInstance() } catch (e: Exception) { null } 
+    }
 
     private val _syncStatus = MutableStateFlow("Siap Sinkron")
     val syncStatus: StateFlow<String> = _syncStatus.asStateFlow()
@@ -153,20 +157,27 @@ class WorkoutRepository(private val dao: WorkoutDao) {
         syncToCloud()
     }
 
-    suspend fun syncFromCloud(onProfileRestored: (String, String) -> Unit = { _, _ -> }) {
-        val userId = auth.currentUser?.uid ?: return
+    suspend fun syncFromCloud(onDataRestored: (name: String, avatar: String, theme: String?) -> Unit = { _, _, _ -> }) {
+        val currentAuth = auth ?: return
+        val currentFirestore = firestore ?: return
+        
+        val userId = currentAuth.currentUser?.uid ?: return
         _syncStatus.value = "Menghubungkan ke Cloud..."
         try {
-            val snapshot = firestore.collection("users").document(userId).collection("data").document("full_backup").get().await()
+            val snapshot = currentFirestore.collection("users").document(userId).collection("data").document("full_backup").get().await()
             if (snapshot.exists()) {
                 val data = snapshot.data ?: return
                 
-                // 1. Restore Profile (Custom Name & Avatar)
+                // 1. Restore Profile & Preferences
                 val profileData = data["profile"] as? Map<String, String>
                 val restoredName = profileData?.get("name")
                 val restoredAvatar = profileData?.get("avatar")
+                
+                val preferences = data["preferences"] as? Map<String, String>
+                val restoredTheme = preferences?.get("theme")
+
                 if (restoredName != null && restoredAvatar != null) {
-                    onProfileRestored(restoredName, restoredAvatar)
+                    onDataRestored(restoredName, restoredAvatar, restoredTheme)
                 }
 
                 // 2. Restore Workout Counts
@@ -229,8 +240,11 @@ class WorkoutRepository(private val dao: WorkoutDao) {
         }
     }
 
-    suspend fun syncToCloud(profile: Map<String, String>? = null) {
-        val userId = auth.currentUser?.uid ?: return
+    suspend fun syncToCloud(profile: Map<String, String>? = null, preferences: Map<String, String>? = null) {
+        val currentAuth = auth ?: return
+        val currentFirestore = firestore ?: return
+        
+        val userId = currentAuth.currentUser?.uid ?: return
         _syncStatus.value = "Menyimpan ke Cloud..."
         try {
             val counts = dao.getAllCounts().firstOrNull() ?: emptyList()
@@ -247,10 +261,12 @@ class WorkoutRepository(private val dao: WorkoutDao) {
                 "last_updated" to System.currentTimeMillis()
             )
 
-            // Include profile if provided, otherwise keep existing or placeholder
+            // Include profile if provided
             profile?.let { backupMap["profile"] = it }
+            // Include preferences if provided
+            preferences?.let { backupMap["preferences"] = it }
 
-            firestore.collection("users").document(userId).collection("data").document("full_backup")
+            currentFirestore.collection("users").document(userId).collection("data").document("full_backup")
                 .set(backupMap, com.google.firebase.firestore.SetOptions.merge())
                 .addOnSuccessListener { _syncStatus.value = "Tersimpan di Cloud" }
                 .addOnFailureListener { _syncStatus.value = "Gagal Menyimpan" }

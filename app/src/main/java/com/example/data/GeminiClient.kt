@@ -7,71 +7,81 @@ import kotlinx.coroutines.withContext
 
 object GeminiClient {
 
+    private var currentKeyIndex = 0
+
+    private fun getApiKeys(): List<String> {
+        val keys = mutableListOf<String>()
+        
+        fun addKeyIfValid(keyName: String) {
+            try {
+                val field = BuildConfig::class.java.getField(keyName)
+                val value = field.get(null) as? String
+                if (!value.isNullOrBlank() && value != "MY_GEMINI_API_KEY") {
+                    keys.add(value)
+                }
+            } catch (e: Exception) {
+                // Key not found in BuildConfig
+            }
+        }
+
+        addKeyIfValid("GEMINI_API_KEY")
+        addKeyIfValid("GEMINI_API_KEY_2")
+        addKeyIfValid("GEMINI_API_KEY_3")
+        addKeyIfValid("GEMINI_API_KEY_4")
+        
+        return keys
+    }
+
     /**
-     * Call Gemini to analyze Gusti's workout habits and return personal advice.
+     * Generic chat with Coach Gemini with Automatic Key Rotation on 429 errors.
+     */
+    suspend fun chatWithCoach(prompt: String): String = withContext(Dispatchers.IO) {
+        val keys = getApiKeys()
+        if (keys.isEmpty()) {
+            return@withContext "Halo! API Key Gemini belum dikonfigurasi. Silakan tambahkan di secrets.properties."
+        }
+
+        var lastError: Exception? = null
+        
+        // Try each key starting from the current index
+        for (i in keys.indices) {
+            val index = (currentKeyIndex + i) % keys.size
+            val apiKey = keys[index]
+            
+            try {
+                val model = GenerativeModel(
+                    modelName = "gemini-2.5-flash",
+                    apiKey = apiKey
+                )
+                val response = model.generateContent(prompt)
+                val text = response.text
+                if (text != null) {
+                    currentKeyIndex = index // Success, keep using this key
+                    return@withContext text
+                }
+            } catch (e: Exception) {
+                lastError = e
+                val errorMsg = e.localizedMessage ?: ""
+                if (errorMsg.contains("429") || errorMsg.contains("quota", ignoreCase = true)) {
+                    // Quota exceeded for this key, try the next one in the next iteration
+                    continue 
+                } else {
+                    // Some other error, might not be fixable by switching keys
+                    break
+                }
+            }
+        }
+
+        return@withContext "Gagal menghubungi Coach Gemini (Semua API Key mungkin penuh): ${lastError?.localizedMessage}"
+    }
+
+    /**
+     * Legacy method kept for compatibility, now redirects to rotated chatWithCoach.
      */
     suspend fun getPersonalAdvice(
         legCount: Int,
         pushCount: Int,
         pullCount: Int,
         logs: List<String>
-    ): String = withContext(Dispatchers.IO) {
-
-        val apiKey = BuildConfig.GEMINI_API_KEY
-        if (apiKey.isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
-            return@withContext "Halo Gusti! API Key Gemini belum dikonfigurasi melalui panel Secrets."
-        }
-
-        val formattedLogs = if (logs.isEmpty()) {
-            "Gusti belum mencatat aktivitas latihan harian."
-        } else {
-            logs.joinToString("\n") { "- $it" }
-        }
-
-        val prompt = """
-            Kamu adalah AI Workout Advisor & Personal Fitness Coach untuk Gusti.
-            Penganalisis pola akumulasi latihan Gusti secara personal.
-            
-            Data Papan Skor Akumulasi Latihan Gusti saat ini:
-            - Leg Day (Kaki): $legCount Kali (🦵)
-            - Push Day (Dada/Bahu/Trisep): $pushCount Kali (💪)
-            - Pull Day (Punggung/Bisep): $pullCount Kali (🦾)
-            
-            Catatan Progress & Riwayat Aktivitas Gusti:
-            $formattedLogs
-            
-            Tugasmu:
-            1. Analisis rasio keseimbangan latihan Gusti (Leg vs Push vs Pull). Apakah latihannya seimbang?
-            2. Berikan evaluasi singkat, saran porsi latihan berikutnya yang personal, dan bimbingan gerakan.
-            3. Berikan saran jam & frekuensi pengingat latihan yang tepat.
-            4. Tulis pesan penutup yang sangat memotivasi dan ramah khas pelatih gym untuk Gusti. Panggil dia "Gusti".
-            
-            Tulis seluruh respon dalam Bahasa Indonesia terstruktur dengan apik, mudah dibaca, menggunakan bullet points, padat gizi fitnes, dan bersahabat.
-        """.trimIndent()
-
-        return@withContext chatWithCoach(prompt)
-    }
-
-    /**
-     * Generic chat with Coach Gemini for AI Coach tab - JALUR GRATIS MURNI GOOGLE AI STUDIO.
-     */
-    suspend fun chatWithCoach(prompt: String): String = withContext(Dispatchers.IO) {
-        val apiKey = BuildConfig.GEMINI_API_KEY
-        if (apiKey.isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
-            return@withContext "Halo Gusti! API Key Gemini belum dikonfigurasi."
-        }
-
-        try {
-            // Menggunakan SDK Google AI Murni (Tembus langsung pakai API Key .env tanpa lewat gerbang Vertex/Billing Firebase!)
-            val model = GenerativeModel(
-                modelName = "gemini-2.5-flash",
-                apiKey = apiKey
-            )
-
-            val response = model.generateContent(prompt)
-            return@withContext response.text ?: "Tidak menerima saran teks dari Coach Gemini."
-        } catch (e: Exception) {
-            return@withContext "Gagal menghubungi Coach Gemini via SDK: ${e.localizedMessage}"
-        }
-    }
+    ): String = chatWithCoach("Data: Leg $legCount, Push $pushCount, Pull $pullCount. Analisis!")
 }
