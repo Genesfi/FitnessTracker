@@ -25,6 +25,9 @@ import androidx.compose.ui.unit.sp
 import com.example.data.WorkoutCount
 import com.example.data.WorkoutSession
 import com.example.ui.theme.*
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun DashboardTabContent(
@@ -184,26 +187,48 @@ fun DashboardTabContent(
                     text = "Konsistensi Bulanan",
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
-                    color = GymPrimary,
+                    color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(bottom = 12.dp)
                 )
 
-                // Simple horizontal bars for last 3 months
-                val months = listOf("April", "Mei", "Juni")
-                val sessionCounts = listOf(18, 24, totalSessions) // Simulated historical data
+                // Dynamic monthly statistics based on real workout sessions
+                val monthNames = listOf("Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des")
                 
-                months.forEachIndexed { index, month ->
-                    val count = sessionCounts[index]
+                // Show last 3 months dynamically
+                val currentSessionsCount = workoutSessions.size
+                // 31 is the initial legacy count (16 Leg + 8 Push + 7 Pull)
+                val totalLegacySessions = (totalSessions - currentSessionsCount).coerceIn(0, 31)
+                
+                for (i in 2 downTo 0) {
+                    val calendar = Calendar.getInstance()
+                    calendar.add(Calendar.MONTH, -i)
+                    val mIndex = calendar.get(Calendar.MONTH)
+                    val mYear = calendar.get(Calendar.YEAR)
+                    val mName = monthNames[mIndex]
+                    
+                    var monthSessions = workoutSessions.count { session ->
+                        val sessionCal = Calendar.getInstance()
+                        sessionCal.timeInMillis = session.date
+                        sessionCal.get(Calendar.MONTH) == mIndex && sessionCal.get(Calendar.YEAR) == mYear
+                    }
+
+                    // Correction logic: If this is April/May 2026 and we have "Legacy" data
+                    if (mYear == 2026 && totalLegacySessions > 0) {
+                        if (mIndex == 3) monthSessions += 16 // April: 16 sessions
+                        if (mIndex == 4) monthSessions += 10 // May: 10 sessions
+                        if (mIndex == 5) monthSessions += (totalLegacySessions - 26).coerceAtLeast(0) // Pull Legacy was 7
+                    }
+                    
                     Column(modifier = Modifier.padding(vertical = 4.dp)) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text(text = month, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface)
-                            Text(text = "$count Sesi", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            Text(text = "$mName $mYear", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface)
+                            Text(text = "$monthSessions Sesi", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                         }
                         Spacer(modifier = Modifier.height(4.dp))
-                        val progress = if (count > 0) (count / 30f).coerceIn(0f, 1f) else 0f
+                        val progress = if (monthSessions > 0) (monthSessions / 24f).coerceIn(0f, 1f) else 0f
                         LinearProgressIndicator(
                             progress = { progress },
                             modifier = Modifier

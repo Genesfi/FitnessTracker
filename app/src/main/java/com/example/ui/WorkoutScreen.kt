@@ -74,6 +74,7 @@ fun WorkoutScreen(
     val messages by viewModel.chatMessages.collectAsStateWithLifecycle()
     val isAnalyzing by viewModel.isAnalyzing.collectAsStateWithLifecycle()
     val advice by viewModel.geminiAdvice.collectAsStateWithLifecycle()
+    val yearlyWrapped by viewModel.yearlyWrappedSummary.collectAsStateWithLifecycle()
     val refreshCooldown by viewModel.refreshCooldown.collectAsStateWithLifecycle()
     val encouragement by viewModel.encouragementMessage.collectAsStateWithLifecycle()
 
@@ -187,7 +188,12 @@ fun WorkoutScreen(
                         workoutSessions = sessions,
                         isLocked = lockState?.isLocked ?: true,
                         advice = advice,
-                        onAnalyze = { viewModel.analyzeWorkoutHabits() },
+                        onAnalyze = { 
+                            // Only auto-analyze if we don't have advice yet
+                            if (advice.isBlank() || advice.contains("Coach AI untuk mendapatkan saran")) {
+                                viewModel.analyzeWorkoutHabits() 
+                            }
+                        },
                         onRefreshAdvice = { viewModel.analyzeWorkoutHabits(true) },
                         refreshCooldown = refreshCooldown,
                         onIncrement = { viewModel.incrementCount(it.dayType) },
@@ -217,16 +223,22 @@ fun WorkoutScreen(
                         intake = protein,
                         isWorkoutDay = isWorkoutDay,
                         onUpdateIntake = { type, delta -> viewModel.updateProteinIntake(type, delta) },
+                        onAddIntakeItem = { name, emoji, target, unit -> viewModel.addProteinIntakeItem(name, emoji, target, unit) },
+                        onDeleteIntakeItem = { id -> viewModel.deleteProteinIntakeItem(id) },
                         onToggleWorkoutDay = { viewModel.toggleWorkoutDayOverride() }
                     )
                     WorkoutTab.STATISTICS -> RecapsTabContent(
                         counts = counts,
                         reminders = reminders,
+                        workoutSessions = sessions,
                         weeklySchedule = weeklySchedule,
+                        yearlyWrapped = yearlyWrapped,
+                        isAnalyzing = isAnalyzing,
                         onUpdateWeeklyActivity = { day, act -> viewModel.updateWeeklyActivity(day, act) },
                         onAddReminderClick = { showAddReminderDialog = true },
                         onDeleteReminder = { viewModel.deleteReminder(it) },
-                        onToggleReminder = { id, active -> viewModel.toggleReminderStatus(id, active) }
+                        onToggleReminder = { id, active -> viewModel.toggleReminderStatus(id, active) },
+                        onGenerateWrapped = { year: Int -> viewModel.generateYearlyWrapped(year) }
                     )
                     WorkoutTab.PROFILE -> ProfileTabContent(
                         isLoggedIn = isLoggedIn,
@@ -242,7 +254,8 @@ fun WorkoutScreen(
                         },
                         onLoginLocal = { email, name, avatar -> viewModel.loginSimulatedLocal(email, name, avatar) },
                         onLogout = { viewModel.logoutUser(context) },
-                        onUpdateProfile = { n, e, a -> viewModel.updateProfile(n, e, a) }
+                        onUpdateProfile = { n, e, a -> viewModel.updateProfile(n, e, a) },
+                        onRepairStats = { viewModel.repairData() }
                     )
                 }
             }

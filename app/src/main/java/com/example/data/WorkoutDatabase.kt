@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
@@ -52,10 +53,17 @@ data class ExerciseChecklistItem(
     val isCompleted: Boolean = false
 )
 
-@Entity(tableName = "protein_intake")
+@Entity(
+    tableName = "protein_intake",
+    indices = [Index(value = ["proteinType", "date"], unique = true)]
+)
 data class ProteinIntake(
-    @PrimaryKey val proteinType: String, // "EGGS", "FISH", "PEA"
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val proteinType: String, // "EGGS", "FISH", "PEA", etc.
+    val emoji: String = "🥚",
     val count: Int = 0,
+    val target: Int = 0,
+    val unit: String = "Butir",
     val date: String // "yyyy-MM-dd"
 )
 
@@ -141,14 +149,41 @@ interface WorkoutDao {
     @Query("SELECT * FROM protein_intake WHERE date = :date")
     fun getProteinIntakeForDate(date: String): Flow<List<ProteinIntake>>
 
+    @Query("SELECT * FROM protein_intake")
+    suspend fun getAllProteinIntake(): List<ProteinIntake>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun updateProteinIntake(intake: ProteinIntake)
+
+    @Query("DELETE FROM protein_intake WHERE id = :id")
+    suspend fun deleteProteinIntakeById(id: Int)
+
+    @Query("DELETE FROM protein_intake WHERE proteinType = :proteinType AND date = :date")
+    suspend fun deleteProteinIntakeByTypeAndDate(proteinType: String, date: String)
 
     // Workout Sessions
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertWorkoutSession(session: WorkoutSession)
 
-    @Query("SELECT * FROM workout_sessions")
+    @Query("SELECT * FROM workout_sessions WHERE dayType = :dayType AND date >= :startOfDay AND date <= :endOfDay ORDER BY date DESC LIMIT 1")
+    suspend fun getLastSessionToday(dayType: String, startOfDay: Long, endOfDay: Long): WorkoutSession?
+
+    @Query("SELECT * FROM workout_sessions WHERE dayType = :dayType ORDER BY date DESC LIMIT :limit")
+    suspend fun getSessionsByDayType(dayType: String, limit: Int): List<WorkoutSession>
+
+    @Query("DELETE FROM workout_sessions")
+    suspend fun deleteAllSessions()
+
+    @Query("DELETE FROM workout_sessions WHERE date >= :start AND date <= :end")
+    suspend fun deleteSessionsInRange(start: Long, end: Long)
+
+    @Query("DELETE FROM protein_intake")
+    suspend fun deleteAllProteinIntake()
+
+    @Query("DELETE FROM workout_sessions WHERE id = :id")
+    suspend fun deleteSessionById(id: Int)
+
+    @Query("SELECT * FROM workout_sessions ORDER BY date DESC")
     fun getAllWorkoutSessions(): Flow<List<WorkoutSession>>
 
     // Weekly Schedule
@@ -173,7 +208,7 @@ interface WorkoutDao {
         WorkoutSession::class,
         WeeklySchedule::class
     ],
-    version = 3,
+    version = 5,
     exportSchema = false
 )
 abstract class WorkoutDatabase : RoomDatabase() {

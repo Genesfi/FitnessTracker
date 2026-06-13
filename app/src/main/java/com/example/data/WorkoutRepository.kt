@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.tasks.await
+import java.util.Calendar
 
 class WorkoutRepository(private val dao: WorkoutDao) {
 
@@ -33,12 +34,13 @@ class WorkoutRepository(private val dao: WorkoutDao) {
 
     // Seeds the database if it is empty
     suspend fun seedDatabase() {
-        // Seed workout counts
+        // Seed workout counts - For NEW users, start with 0. 
+        // Existing data from cloud will overwrite this during sync.
         val existingCounts = dao.getAllCounts().firstOrNull()
         if (existingCounts.isNullOrEmpty()) {
-            dao.insertOrUpdateCount(WorkoutCount("LEG", "Leg Day (Kaki)", "🦵", 16))
-            dao.insertOrUpdateCount(WorkoutCount("PUSH", "Push Day (Dada/Bahu/Trisep)", "💪", 8))
-            dao.insertOrUpdateCount(WorkoutCount("PULL", "Pull Day (Punggung/Bisep)", "🦾", 7))
+            dao.insertOrUpdateCount(WorkoutCount("LEG", "Leg Day (Kaki)", "🦵", 0))
+            dao.insertOrUpdateCount(WorkoutCount("PUSH", "Push Day (Dada/Bahu/Trisep)", "💪", 0))
+            dao.insertOrUpdateCount(WorkoutCount("PULL", "Pull Day (Punggung/Bisep)", "🦾", 0))
         }
 
         // Seed weekly schedule
@@ -114,7 +116,7 @@ class WorkoutRepository(private val dao: WorkoutDao) {
     suspend fun incrementCount(dayType: String) {
         val current = dao.getCountByDayType(dayType) ?: return
         dao.insertOrUpdateCount(current.copy(count = current.count + 1))
-        dao.insertWorkoutSession(WorkoutSession(dayType = dayType))
+        dao.insertWorkoutSession(WorkoutSession(dayType = dayType, date = System.currentTimeMillis()))
         syncToCloud()
     }
 
@@ -143,17 +145,78 @@ class WorkoutRepository(private val dao: WorkoutDao) {
         syncToCloud()
     }
 
+    suspend fun clearDuplicateProteinIntake() {
+        // This is a helper to clean up if needed, but the unique index should handle it now
+        // For existing duplicates, we might need a more complex query or just wipe and let sync restore
+    }
+
+    suspend fun repairData(targetLeg: Int, targetPush: Int, targetPull: Int) {
+        // 1. Update counts
+        dao.insertOrUpdateCount(WorkoutCount("LEG", "Leg Day (Kaki)", "🦵", targetLeg))
+        dao.insertOrUpdateCount(WorkoutCount("PUSH", "Push Day (Dada/Bahu/Trisep)", "💪", targetPush))
+        dao.insertOrUpdateCount(WorkoutCount("PULL", "Pull Day (Punggung/Bisep)", "🦾", targetPull))
+        
+        // 2. Clear sessions for current month to fix corruption
+        val calendar = Calendar.getInstance()
+        calendar.set(Calendar.DAY_OF_MONTH, 1)
+        calendar.set(Calendar.HOUR_OF_DAY, 0)
+        calendar.set(Calendar.MINUTE, 0)
+        val startOfMonth = calendar.timeInMillis
+        dao.deleteSessionsInRange(startOfMonth, System.currentTimeMillis())
+        
+        // 3. Add exactly 1 session for June if requested (as per user's "correct" state)
+        dao.insertWorkoutSession(WorkoutSession(dayType = "PULL", date = System.currentTimeMillis()))
+
+        syncToCloud()
+    }
+
+    suspend fun deleteProteinIntake(id: Int) {
+        dao.deleteProteinIntakeById(id)
+        syncToCloud()
+    }
+
     suspend fun decrementCount(dayType: String) {
         val current = dao.getCountByDayType(dayType) ?: return
         if (current.count > 0) {
             dao.insertOrUpdateCount(current.copy(count = current.count - 1))
+            
+            // Cheat prevention: Remove the last session recorded today
+            val calendar = Calendar.getInstance()
+            calendar.set(Calendar.HOUR_OF_DAY, 0)
+            calendar.set(Calendar.MINUTE, 0)
+            calendar.set(Calendar.SECOND, 0)
+            calendar.set(Calendar.MILLISECOND, 0)
+            val startOfDay = calendar.timeInMillis
+            val endOfDay = startOfDay + 24 * 60 * 60 * 1000 - 1
+            
+            val lastSession = dao.getLastSessionToday(dayType, startOfDay, endOfDay)
+            if (lastSession != null) {
+                dao.deleteSessionById(lastSession.id)
+            }
+            
             syncToCloud()
         }
     }
 
     suspend fun updateCount(dayType: String, newCount: Int) {
         val current = dao.getCountByDayType(dayType) ?: return
+        val oldCount = current.count
+        val diff = newCount - oldCount
+        
         dao.insertOrUpdateCount(current.copy(count = newCount))
+        
+        if (diff > 0) {
+            // Add sessions to current month/year
+            repeat(diff) {
+                dao.insertWorkoutSession(WorkoutSession(dayType = dayType, date = System.currentTimeMillis()))
+            }
+        } else if (diff < 0) {
+            // Remove sessions (newest first)
+            val toRemove = -diff
+            val sessions = dao.getSessionsByDayType(dayType, toRemove)
+            sessions.forEach { dao.deleteSessionById(it.id) }
+        }
+
         syncToCloud()
     }
 
@@ -224,7 +287,10 @@ class WorkoutRepository(private val dao: WorkoutDao) {
                 proteinData?.forEach {
                     dao.updateProteinIntake(ProteinIntake(
                         proteinType = it["proteinType"] as String,
+                        emoji = it["emoji"] as? String ?: "🥚",
                         count = (it["count"] as Long).toInt(),
+                        target = (it["target"] as? Long)?.toInt() ?: 0,
+                        unit = it["unit"] as? String ?: "Butir",
                         date = it["date"] as String
                     ))
                 }
@@ -251,6 +317,7 @@ class WorkoutRepository(private val dao: WorkoutDao) {
             val checklist = dao.getAllExerciseChecklist().firstOrNull() ?: emptyList()
             val reminders = dao.getAllReminders().firstOrNull() ?: emptyList()
             val schedule = dao.getWeeklySchedule().firstOrNull() ?: emptyList()
+            val proteinIntakes = dao.getAllProteinIntake()
 
             // Construct backup map
             val backupMap = mutableMapOf<String, Any>(
@@ -258,6 +325,16 @@ class WorkoutRepository(private val dao: WorkoutDao) {
                 "checklist" to checklist.map { mapOf("name" to it.name, "category" to it.category, "note" to it.note, "isCompleted" to it.isCompleted) },
                 "reminders" to reminders.map { mapOf("time" to it.time, "label" to it.label, "days" to it.days, "isActive" to it.isActive) },
                 "schedule" to schedule.map { mapOf("dayName" to it.dayName, "activity" to it.activity, "order" to it.order) },
+                "protein" to proteinIntakes.map { 
+                    mapOf(
+                        "proteinType" to it.proteinType,
+                        "emoji" to it.emoji,
+                        "count" to it.count,
+                        "target" to it.target,
+                        "unit" to it.unit,
+                        "date" to it.date
+                    )
+                },
                 "last_updated" to System.currentTimeMillis()
             )
 

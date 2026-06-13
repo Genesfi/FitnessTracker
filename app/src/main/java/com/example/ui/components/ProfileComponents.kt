@@ -33,7 +33,8 @@ fun ProfileTabContent(
     onTriggerGoogleLogin: () -> Unit,
     onLoginLocal: (String, String, String) -> Unit,
     onLogout: () -> Unit,
-    onUpdateProfile: (String, String, String) -> Unit
+    onUpdateProfile: (String, String, String) -> Unit,
+    onRepairStats: () -> Unit = {}
 ) {
     var localName by remember { mutableStateOf("") }
     var localEmail by remember { mutableStateOf("") }
@@ -271,7 +272,7 @@ fun ProfileTabContent(
 
             // Cloud Sync Status Card
             Card(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().clickable { onRepairStats() },
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))

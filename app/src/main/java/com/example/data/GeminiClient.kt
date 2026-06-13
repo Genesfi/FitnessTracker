@@ -11,7 +11,7 @@ object GeminiClient {
 
     private fun getApiKeys(): List<String> {
         val keys = mutableListOf<String>()
-        
+
         fun addKeyIfValid(keyName: String) {
             try {
                 val field = BuildConfig::class.java.getField(keyName)
@@ -25,10 +25,10 @@ object GeminiClient {
         }
 
         addKeyIfValid("GEMINI_API_KEY")
-        addKeyIfValid("GEMINI_API_KEY_2")
-        addKeyIfValid("GEMINI_API_KEY_3")
-        addKeyIfValid("GEMINI_API_KEY_4")
-        
+        for (i in 2..10) {
+            addKeyIfValid("GEMINI_API_KEY_$i")
+        }
+
         return keys
     }
 
@@ -42,12 +42,12 @@ object GeminiClient {
         }
 
         var lastError: Exception? = null
-        
+
         // Try each key starting from the current index
         for (i in keys.indices) {
             val index = (currentKeyIndex + i) % keys.size
             val apiKey = keys[index]
-            
+
             try {
                 val model = GenerativeModel(
                     modelName = "gemini-2.5-flash",
@@ -64,7 +64,7 @@ object GeminiClient {
                 val errorMsg = e.localizedMessage ?: ""
                 if (errorMsg.contains("429") || errorMsg.contains("quota", ignoreCase = true)) {
                     // Quota exceeded for this key, try the next one in the next iteration
-                    continue 
+                    continue
                 } else {
                     // Some other error, might not be fixable by switching keys
                     break

@@ -21,14 +21,22 @@ import java.util.*
 
 import com.example.data.WeeklySchedule
 
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
+
 @Composable
 fun SmartClockPanel(weeklySchedule: List<WeeklySchedule>) {
     var time by remember { mutableStateOf(Calendar.getInstance()) }
+    val lifecycleOwner = LocalLifecycleOwner.current
     
-    LaunchedEffect(Unit) {
-        while (true) {
-            time = Calendar.getInstance()
-            kotlinx.coroutines.delay(1000)
+    // Lifecycle-aware timer to save battery and quota
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                time = Calendar.getInstance()
+                kotlinx.coroutines.delay(1000)
+            }
         }
     }
 

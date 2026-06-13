@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -75,6 +76,9 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
     private val _geminiAdvice = MutableStateFlow<String>("")
     val geminiAdvice: StateFlow<String> = _geminiAdvice.asStateFlow()
 
+    private val _yearlyWrappedSummary = MutableStateFlow<Map<Int, String>>(emptyMap())
+    val yearlyWrappedSummary: StateFlow<Map<Int, String>> = _yearlyWrappedSummary.asStateFlow()
+
     private val _isAnalyzing = MutableStateFlow(false)
     val isAnalyzing: StateFlow<Boolean> = _isAnalyzing.asStateFlow()
 
@@ -118,15 +122,30 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
                     $name bertanya: $text
                 """.trimIndent()
                 val response = GeminiClient.chatWithCoach(contextPrompt)
+                val currentUserName = _userName.value
                 
-                _chatMessages.value = _chatMessages.value + ChatMessage(response, false)
+                // Final safety check to filter technical messages in chat
+                val finalResponse = if (response.contains("quota", ignoreCase = true) || response.contains("jalur penuh")) {
+                    "Maaf $currentUserName, Coach sedang istirahat sebentar (Jalur Padat). Coba tanya lagi semenit lagi ya! 🙏"
+                } else {
+                    response
+                }
+                
+                _chatMessages.value = _chatMessages.value + ChatMessage(finalResponse, false)
             } catch (e: Exception) {
                 val currentName = _userName.value
-                val errorMsg = e.localizedMessage ?: ""
+                val errorMsg = e.localizedMessage ?: e.message ?: "Unknown AI error"
+                
+                // Technical log for developer
+                android.util.Log.e("CoachAI", "Chat error: $errorMsg", e)
+
                 val humanFriendlyError = when {
-                    errorMsg.contains("quota", ignoreCase = true) -> 
-                        "Maaf $currentName, kuota Coach sedang penuh. Silakan coba lagi dalam beberapa menit atau jam ya! 🙏"
-                    else -> "Maaf $currentName, Coach sedang mengalami gangguan: ${e.localizedMessage}"
+                    errorMsg.contains("quota", ignoreCase = true) || 
+                    errorMsg.contains("429") || 
+                    errorMsg.contains("503") ||
+                    errorMsg.contains("demand", ignoreCase = true) -> 
+                        "Maaf $currentName, Coach sedang melayani banyak user (Jalur Padat). Silakan tanya lagi dalam 1-2 menit ya! 🙏"
+                    else -> "Maaf $currentName, Coach sedang istirahat sebentar. Coba lagi nanti ya!"
                 }
                 _chatMessages.value = _chatMessages.value + ChatMessage(humanFriendlyError, false)
             } finally {
@@ -240,6 +259,20 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
         // Seed database
         viewModelScope.launch {
             repository.seedDatabase()
+            // Add default protein items if none exist for today
+            val date = _currentDate.value
+            val currentProtein = repository.getProteinIntakeForDate(date).firstOrNull() ?: emptyList()
+            
+            // Fixed seeding to avoid duplicates by checking names
+            if (currentProtein.none { it.proteinType == "EGGS" }) {
+                repository.updateProteinIntake(ProteinIntake(proteinType = "EGGS", emoji = "🥚", count = 0, target = 4, unit = "Butir", date = date))
+            }
+            if (currentProtein.none { it.proteinType == "FISH" }) {
+                repository.updateProteinIntake(ProteinIntake(proteinType = "FISH", emoji = "🐟", count = 0, target = 5, unit = "Sdm", date = date))
+            }
+            if (currentProtein.none { it.proteinType == "PEA" }) {
+                repository.updateProteinIntake(ProteinIntake(proteinType = "PEA", emoji = "🥛", count = 0, target = 1, unit = "Scoop", date = date))
+            }
         }
 
         // Initialize exercise set configurations from prefs
@@ -322,9 +355,37 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             val date = _currentDate.value
             val currentIntakes = proteinIntake.value
-            val intake = currentIntakes.find { it.proteinType == proteinType } ?: ProteinIntake(proteinType, 0, date)
+            val intake = currentIntakes.find { it.proteinType == proteinType } ?: ProteinIntake(proteinType = proteinType, count = 0, date = date)
             val newCount = (intake.count + delta).coerceAtLeast(0)
             repository.updateProteinIntake(intake.copy(count = newCount))
+        }
+    }
+
+    fun addProteinIntakeItem(name: String, emoji: String, target: Int, unit: String) {
+        viewModelScope.launch {
+            val date = _currentDate.value
+            val newItem = ProteinIntake(
+                proteinType = name,
+                emoji = emoji,
+                count = 0,
+                target = target,
+                unit = unit,
+                date = date
+            )
+            repository.updateProteinIntake(newItem)
+        }
+    }
+
+    fun repairData() {
+        viewModelScope.launch {
+            repository.repairData(16, 8, 8)
+            addLog("System: Melakukan sinkronisasi perbaikan data (Repair).")
+        }
+    }
+
+    fun deleteProteinIntakeItem(id: Int) {
+        viewModelScope.launch {
+            repository.deleteProteinIntake(id)
         }
     }
 
@@ -559,13 +620,78 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun generateYearlyWrapped(year: Int) {
+        if (_isAnalyzing.value) return
+        
+        viewModelScope.launch {
+            _isAnalyzing.value = true
+            try {
+                val sessions = workoutSessions.value.filter {
+                    val cal = Calendar.getInstance()
+                    cal.timeInMillis = it.date
+                    cal.get(Calendar.YEAR) == year
+                }
+                
+                val leg = sessions.count { it.dayType == "LEG" }
+                val push = sessions.count { it.dayType == "PUSH" }
+                val pull = sessions.count { it.dayType == "PULL" }
+                val total = sessions.size
+                
+                // Add legacy data if year is 2026
+                var adjustedTotal = total
+                var adjustedLeg = leg
+                var adjustedPush = push
+                var adjustedPull = pull
+                
+                if (year == 2026) {
+                    val currentSessionsCount = workoutSessions.value.size
+                    val totalLegacySessions = (workoutCounts.value.sumOf { it.count } - currentSessionsCount).coerceIn(0, 31)
+                    if (totalLegacySessions > 0) {
+                        adjustedTotal += totalLegacySessions
+                        adjustedLeg += 16
+                        adjustedPush += 8
+                        adjustedPull += (totalLegacySessions - 24).coerceAtLeast(0)
+                    }
+                }
+
+                val name = _userName.value
+                val prompt = """
+                    Buatlah ringkasan pencapaian tahunan "Fitness Wrapped" untuk $name di tahun $year.
+                    Gunakan gaya bahasa yang sangat keren, estetik, puitis, dan penuh semangat (seperti narasi atlet pro).
+                    Data tahun $year:
+                    - Total Latihan: $adjustedTotal Sesi
+                    - Leg Day: $adjustedLeg kali
+                    - Push Day: $adjustedPush kali
+                    - Pull Day: $adjustedPull kali
+                    
+                    Berikan pesan penutup yang sangat memotivasi untuk tahun berikutnya.
+                    Ringkasan harus padat namun berkesan (maksimal 150 kata).
+                    Panggil user "$name".
+                """.trimIndent()
+
+                val response = GeminiClient.chatWithCoach(prompt)
+                _yearlyWrappedSummary.value += (year to response)
+            } catch (e: Exception) {
+                _yearlyWrappedSummary.value = _yearlyWrappedSummary.value + (year to "Maaf $userName, Coach gagal merangkum tahunmu. Coba lagi nanti ya! 🙏")
+            } finally {
+                _isAnalyzing.value = false
+            }
+        }
+    }
+
     // Hybrid Intelligent Analyzer with 100% stable offline local rules fallback
     fun analyzeWorkoutHabits(forceRefresh: Boolean = false) {
-        if (!forceRefresh && _geminiAdvice.value.isNotBlank() && !_geminiAdvice.value.contains("Menghubungi")) {
+        // PREVENT idle/background battery drain:
+        // Only run if forced (user clicked refresh) OR if the current advice is completely blank.
+        // This stops the app from "thinking" constantly in the background.
+        if (_isAnalyzing.value) return
+        
+        val currentAdvice = _geminiAdvice.value
+        if (!forceRefresh && currentAdvice.isNotBlank() && !currentAdvice.contains("Coach sedang berpikir")) {
             return
         }
 
-        if (forceRefresh && _refreshCooldown.value > 0) return
+        if (forceRefresh && (_refreshCooldown.value > 0)) return
         
         viewModelScope.launch {
             if (forceRefresh) {
@@ -573,12 +699,14 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
             }
             
             _isAnalyzing.value = true
-            _geminiAdvice.value = "Menghubungi Personal Coach Gemini Anda...\nMenganalisis seluruh data kebugaran Anda..."
+            _geminiAdvice.value = "Coach sedang berpikir...\nMenganalisis data latihan Anda..."
             
             val counts = workoutCounts.value
             val leg = counts.firstOrNull { it.dayType == "LEG" }?.count ?: 0
             val push = counts.firstOrNull { it.dayType == "PUSH" }?.count ?: 0
             val pull = counts.firstOrNull { it.dayType == "PULL" }?.count ?: 0
+            
+            // ... (rest of data prep)
             
             val currentChecklist = exerciseChecklist.value
             val completedExercises = currentChecklist.filter { it.isCompleted }.joinToString { it.name }
@@ -676,7 +804,7 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
 
     private fun startCooldown() {
         viewModelScope.launch {
-            _refreshCooldown.value = 30
+            _refreshCooldown.value = 60 // Increased to 60s to save API quota
             while (_refreshCooldown.value > 0) {
                 kotlinx.coroutines.delay(1000)
                 _refreshCooldown.value -= 1
@@ -691,18 +819,20 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
         val pushDominant = push > leg + 4 && push > pull + 4
         val pullDominant = pull > leg + 4 && pull > push + 4
 
+        val name = _userName.value
+        
         val ratioText = when {
-            isBalanced -> "Luar biasa Gusti! Rasio porsi latihan Anda sangat seimbang ($leg Kaki 🦵, $push Dorong 💪, $pull Tarik 🦾). Ini adalah rasio ideal untuk memulihkan otot secara maksimal dan simetri tubuh tegap!"
+            isBalanced -> "Luar biasa $name! Rasio porsi latihan Anda sangat seimbang ($leg Kaki 🦵, $push Dorong 💪, $pull Tarik 🦾). Ini adalah rasio ideal untuk memulihkan otot secara maksimal dan simetri tubuh tegap!"
             legsDominant -> "Sesi latihan kaki Anda sangat gigih ($leg Kaki 🦵 kali). Kaki kokoh adalah pondasi inti kekuatan tubuh! Tapi, pastikan menyusul pengerjaan tubuh bagian atas (Dada: $push, Punggung: $pull) agar postur tetap seimbang dan atletis."
-            pushDominant -> "Rasio latihan dorong (Push Day: $push 💪 kali) memimpin tinggi. Dada, bahu, dan trisep Gusti sedang berada dalam perkembangan prima! Pertahankan, tapi mohon jangan me-skip latihan kaki (Leg Day: $leg kali), karena melatih otot besar kaki merangsang metabolisme tubuh secara alami."
+            pushDominant -> "Rasio latihan dorong (Push Day: $push 💪 kali) memimpin tinggi. Dada, bahu, dan trisep $name sedang berada dalam perkembangan prima! Pertahankan, tapi mohon jangan me-skip latihan kaki (Leg Day: $leg kali), karena melatih otot besar kaki merangsang metabolisme tubuh secara alami."
             pullDominant -> "Sesi latihan tarik punggung dan bisep Anda (Pull Day: $pull 🦾 kali) sangat kuat! Otot punggung yang tebal membantu menjaga bahu tetap kokoh. Seimbangkan dengan latihan dada/bahu depan ($push kali) dan kaki ($leg kali) demi fungsionalitas fitnes maksimal."
             else -> "Rasio latihan Anda saat ini adalah Kaki: $leg kali, Dorong: $push kali, Tarik: $pull kali. Rotasi pemulihan otot idealnya adalah 48 jam istihat untuk kelompok otot yang sama."
         }
 
         return """
-            ⚡ **HASIL DIAGNOSTIK OFFLINE INDEPENDEN (COACH PINTAR GUSTI)**
+            ⚡ **HASIL DIAGNOSTIK OFFLINE INDEPENDEN (COACH PINTAR $name)**
             
-            Halo Gusti! Rutinitas pelacakan Anda berhasil dievaluasi secara offline langsung dari ponsel Anda tanpa beban API tambahan:
+            Halo $name! Rutinitas pelacakan Anda berhasil dievaluasi secara offline langsung dari ponsel Anda tanpa beban API tambahan:
             
             📊 **Symmetry Rating & Keseimbangan**:
             $ratioText
