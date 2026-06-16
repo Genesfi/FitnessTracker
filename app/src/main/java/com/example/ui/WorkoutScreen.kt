@@ -255,7 +255,7 @@ fun WorkoutScreen(
                         onLoginLocal = { email, name, avatar -> viewModel.loginSimulatedLocal(email, name, avatar) },
                         onLogout = { viewModel.logoutUser(context) },
                         onUpdateProfile = { n, e, a -> viewModel.updateProfile(n, e, a) },
-                        onRepairStats = { viewModel.repairData() }
+                        onSyncCloud = { viewModel.syncData() }
                     )
                 }
             }

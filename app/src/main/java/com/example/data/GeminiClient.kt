@@ -50,7 +50,7 @@ object GeminiClient {
 
             try {
                 val model = GenerativeModel(
-                    modelName = "gemini-2.5-flash",
+                    modelName = "gemini-3.5-flash",
                     apiKey = apiKey
                 )
                 val response = model.generateContent(prompt)

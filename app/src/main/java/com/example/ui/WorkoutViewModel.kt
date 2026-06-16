@@ -376,10 +376,10 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun repairData() {
+    fun syncData() {
         viewModelScope.launch {
-            repository.repairData(16, 8, 8)
-            addLog("System: Melakukan sinkronisasi perbaikan data (Repair).")
+            repository.syncToCloud()
+            addLog("System: Sinkronisasi data ke Cloud berhasil.")
         }
     }
 

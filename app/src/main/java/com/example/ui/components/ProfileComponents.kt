@@ -34,7 +34,7 @@ fun ProfileTabContent(
     onLoginLocal: (String, String, String) -> Unit,
     onLogout: () -> Unit,
     onUpdateProfile: (String, String, String) -> Unit,
-    onRepairStats: () -> Unit = {}
+    onSyncCloud: () -> Unit = {}
 ) {
     var localName by remember { mutableStateOf("") }
     var localEmail by remember { mutableStateOf("") }
@@ -272,7 +272,7 @@ fun ProfileTabContent(
 
             // Cloud Sync Status Card
             Card(
-                modifier = Modifier.fillMaxWidth().clickable { onRepairStats() },
+                modifier = Modifier.fillMaxWidth().clickable { onSyncCloud() },
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
