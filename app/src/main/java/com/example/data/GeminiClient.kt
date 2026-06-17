@@ -33,7 +33,7 @@ object GeminiClient {
     }
 
     /**
-     * Generic chat with Coach Gemini with Automatic Key Rotation on 429 errors.
+     * Generic chat with Coach Gemini with Automatic Key Rotation and Model Fallback.
      */
     suspend fun chatWithCoach(prompt: String): String = withContext(Dispatchers.IO) {
         val keys = getApiKeys()
@@ -43,36 +43,46 @@ object GeminiClient {
 
         var lastError: Exception? = null
 
-        // Try each key starting from the current index
+        // Model hierarchy: Primary is 3.5-flash, Fallback is 2.5-flash then 1.5-flash
+        val modelsToTry = listOf("gemini-3.5-flash", "gemini-2.5-flash", "gemini-1.5-flash")
+
+        // Try each key
         for (i in keys.indices) {
             val index = (currentKeyIndex + i) % keys.size
             val apiKey = keys[index]
 
-            try {
-                val model = GenerativeModel(
-                    modelName = "gemini-3.5-flash",
-                    apiKey = apiKey
-                )
-                val response = model.generateContent(prompt)
-                val text = response.text
-                if (text != null) {
-                    currentKeyIndex = index // Success, keep using this key
-                    return@withContext text
-                }
-            } catch (e: Exception) {
-                lastError = e
-                val errorMsg = e.localizedMessage ?: ""
-                if (errorMsg.contains("429") || errorMsg.contains("quota", ignoreCase = true)) {
-                    // Quota exceeded for this key, try the next one in the next iteration
-                    continue
-                } else {
-                    // Some other error, might not be fixable by switching keys
-                    break
+            // For each key, try models in order
+            for (modelName in modelsToTry) {
+                try {
+                    val model = GenerativeModel(
+                        modelName = modelName,
+                        apiKey = apiKey
+                    )
+                    val response = model.generateContent(prompt)
+                    val text = response.text
+                    if (text != null) {
+                        currentKeyIndex = index // Success, keep using this key
+                        return@withContext text
+                    }
+                } catch (e: Exception) {
+                    lastError = e
+                    val errorMsg = e.localizedMessage ?: ""
+                    
+                    // If high demand (503), quota (429), or serialization/grpc errors, try next model or next key
+                    if (errorMsg.contains("503") || errorMsg.contains("demand", ignoreCase = true) ||
+                        errorMsg.contains("429") || errorMsg.contains("quota", ignoreCase = true) ||
+                        errorMsg.contains("serialization", ignoreCase = true) ||
+                        errorMsg.contains("grpc", ignoreCase = true)) {
+                        continue // Try next model for this key, or if last model, it will move to next key
+                    } else {
+                        // Other errors (like 400 Bad Request), break model loop to try next key
+                        break 
+                    }
                 }
             }
         }
 
-        return@withContext "Gagal menghubungi Coach Gemini (Semua API Key mungkin penuh): ${lastError?.localizedMessage}"
+        return@withContext "Gagal menghubungi Coach Gemini (Jalur Padat/Quota Habis): ${lastError?.localizedMessage}"
     }
 
     /**

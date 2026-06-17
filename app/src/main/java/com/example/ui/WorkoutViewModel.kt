@@ -86,11 +86,10 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
     data class ChatMessage(
         val text: String,
         val isUser: Boolean,
+        val isError: Boolean = false,
         val id: String = java.util.UUID.randomUUID().toString()
     )
-    private val _chatMessages = MutableStateFlow<List<ChatMessage>>(listOf(
-        ChatMessage("Halo! Saya Coach AI Anda. Ada yang bisa saya bantu dengan latihan atau nutrisi Anda hari ini?", false)
-    ))
+    private val _chatMessages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val chatMessages: StateFlow<List<ChatMessage>> = _chatMessages.asStateFlow()
 
     private val _encouragementMessage = MutableStateFlow<String?>(null)
@@ -101,10 +100,9 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
     fun sendMessage(text: String) {
         if (text.isBlank()) return
         
-        val userMsg = ChatMessage(text, true)
-        _chatMessages.value = _chatMessages.value + userMsg
-        
         viewModelScope.launch {
+            repository.addChatHistory(com.example.data.ChatHistory(text = text, isUser = true))
+            
             _isAnalyzing.value = true
             try {
                 // Get counts for context
@@ -113,12 +111,30 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
                 val push = counts.firstOrNull { it.dayType == "PUSH" }?.count ?: 0
                 val pull = counts.firstOrNull { it.dayType == "PULL" }?.count ?: 0
                 val name = _userName.value
+                val schedule = weeklySchedule.value.joinToString("\n") { "• ${it.dayName}: ${it.activity}" }
                 
                 val contextPrompt = """
                     Kamu adalah Coach AI $name. Berikan saran yang singkat, padat, dan memotivasi. 
                     Hindari kata-kata basi seperti 'ya betul' atau pengulangan informasi yang tidak perlu.
                     Gunakan gaya bahasa pelatih profesional yang akrab. Panggil user dengan nama "$name".
-                    Data saat ini: Leg $leg, Push $push, Pull $pull. 
+                    
+                    JADWAL MINGGUAN USER:
+                    $schedule
+                    
+                    DATA AKUMULASI (Bukan Set, tapi TOTAL SESI LATIHAN selama berbulan-bulan): 
+                    - Leg Day: $leg Sesi, Push Day: $push Sesi, Pull Day: $pull Sesi. 
+                    
+                    INFO BI-WEEKLY (Dua Mingguan):
+                    - Sekarang adalah MINGGU ${_currentWeekType.value} (1=Ganjil, 2=Genap).
+                    - User memiliki daftar gerakan yang berbeda antara Minggu Ganjil dan Genap.
+                    
+                    INSTRUKSI PENTING:
+                    - Pahami bahwa angka di atas adalah TOTAL SESI (Training Sessions), BUKAN jumlah set dalam satu latihan. 
+                    - JANGAN gunakan kata "set" untuk merujuk pada data akumulasi tersebut. Sebut sebagai "Sesi" atau "Latihan".
+                    - Evaluasi JADWAL MINGGUAN USER secara kritis namun suportif. 
+                    - Jika user bertanya tentang gerakan, sesuaikan jawabanmu dengan info minggu ini (Minggu ${_currentWeekType.value}).
+                    - Berikan saran jika menurutmu ada pola yang lebih baik (misal: penempatan Rest Day yang lebih optimal), namun tetap hargai target konsistensi user.
+                    
                     $name bertanya: $text
                 """.trimIndent()
                 val response = GeminiClient.chatWithCoach(contextPrompt)
@@ -131,7 +147,7 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
                     response
                 }
                 
-                _chatMessages.value = _chatMessages.value + ChatMessage(finalResponse, false)
+                repository.addChatHistory(com.example.data.ChatHistory(text = finalResponse, isUser = false))
             } catch (e: Exception) {
                 val currentName = _userName.value
                 val errorMsg = e.localizedMessage ?: e.message ?: "Unknown AI error"
@@ -147,10 +163,21 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
                         "Maaf $currentName, Coach sedang melayani banyak user (Jalur Padat). Silakan tanya lagi dalam 1-2 menit ya! 🙏"
                     else -> "Maaf $currentName, Coach sedang istirahat sebentar. Coba lagi nanti ya!"
                 }
-                _chatMessages.value = _chatMessages.value + ChatMessage(humanFriendlyError, false)
+                repository.addChatHistory(com.example.data.ChatHistory(text = humanFriendlyError, isUser = false, isError = true))
             } finally {
                 _isAnalyzing.value = false
             }
+        }
+    }
+
+    fun clearChat() {
+        viewModelScope.launch {
+            repository.clearChatHistory()
+            // Add initial message back
+            repository.addChatHistory(com.example.data.ChatHistory(
+                text = "Halo! Saya Coach AI Anda. Ada yang bisa saya bantu dengan latihan atau nutrisi Anda hari ini?",
+                isUser = false
+            ))
         }
     }
 
@@ -175,6 +202,14 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
     val workoutSessions: StateFlow<List<WorkoutSession>>
     val weeklySchedule: StateFlow<List<WeeklySchedule>>
     val syncStatus: StateFlow<String>
+
+    // Week type for bi-weekly schedule: 1 = Odd (Week 1/3), 2 = Even (Week 2/4/5)
+    private val _currentWeekType = MutableStateFlow(1)
+    val currentWeekType: StateFlow<Int> = _currentWeekType.asStateFlow()
+
+    private val _viewingWeekType = MutableStateFlow(1)
+    val viewingWeekType: StateFlow<Int> = _viewingWeekType.asStateFlow()
+
     val isWorkoutDay: StateFlow<Boolean>
 
     init {
@@ -190,10 +225,17 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
             }
             
             _isLoggedIn.value = firebaseAuth.currentUser != null
-            _userName.value = firebaseAuth.currentUser?.displayName ?: sharedPrefs.getString("user_name", "Gusti Fitness") ?: "Gusti Fitness"
-            _userEmail.value = firebaseAuth.currentUser?.email ?: sharedPrefs.getString("user_email", "gusti.workout@gmail.com") ?: "gusti.workout@gmail.com"
+        _userName.value = firebaseAuth.currentUser?.displayName ?: sharedPrefs.getString("user_name", "Gusti Fitness") ?: "Gusti Fitness"
+        _userEmail.value = firebaseAuth.currentUser?.email ?: sharedPrefs.getString("user_email", "gusti.workout@gmail.com") ?: "gusti.workout@gmail.com"
 
-            firebaseAuth.addAuthStateListener { fa ->
+        // Calculate current week type
+        val cal = Calendar.getInstance()
+        val weekOfMonth = cal.get(Calendar.WEEK_OF_MONTH)
+        val type = if (weekOfMonth % 2 != 0) 1 else 2
+        _currentWeekType.value = type
+        _viewingWeekType.value = type
+
+        firebaseAuth.addAuthStateListener { fa ->
                 val user = fa.currentUser
                 _isLoggedIn.value = user != null
                 if (user != null) {
@@ -251,6 +293,22 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
 
         weeklySchedule = repository.weeklySchedule
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+        viewModelScope.launch {
+            repository.allChatHistory.collect { history ->
+                if (history.isEmpty()) {
+                    // Seed initial message if empty
+                    repository.addChatHistory(com.example.data.ChatHistory(
+                        text = "Halo! Saya Coach AI Anda. Ada yang bisa saya bantu dengan latihan atau nutrisi Anda hari ini?",
+                        isUser = false
+                    ))
+                } else {
+                    _chatMessages.value = history.map { 
+                        ChatMessage(it.text, it.isUser, it.isError, it.id.toString()) 
+                    }
+                }
+            }
+        }
 
         isWorkoutDay = combine(exerciseChecklist, _isWorkoutDayOverride) { checklist, override ->
             override ?: checklist.any { it.isCompleted }
@@ -333,10 +391,14 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun addExercise(name: String, category: String, note: String = "") {
+    fun addExercise(name: String, category: String, note: String = "", weekType: Int = 0) {
         viewModelScope.launch {
-            repository.addExerciseChecklist(ExerciseChecklistItem(name, category, note))
+            repository.addExerciseChecklist(ExerciseChecklistItem(name, category, note, weekType = weekType))
         }
+    }
+
+    fun setViewingWeekType(type: Int) {
+        _viewingWeekType.value = type
     }
 
     fun deleteExercise(item: ExerciseChecklistItem) {
@@ -504,6 +566,23 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun restoreFromCloud() {
+        viewModelScope.launch {
+            repository.syncFromCloud { name, avatar, restoredTheme ->
+                _userName.value = name
+                _userAvatar.value = avatar
+                restoredTheme?.let { _theme.value = it }
+            }
+        }
+    }
+
+    fun repairData(leg: Int, push: Int, pull: Int) {
+        viewModelScope.launch {
+            repository.repairData(leg, push, pull)
+            addLog("System: Data sesi diperbaiki secara manual (L:$leg, P:$push, PL:$pull)")
+        }
+    }
+
     fun setTheme(newTheme: String) {
         _theme.value = newTheme
         sharedPrefs?.edit()?.putString("app_theme", newTheme)?.apply()
@@ -658,11 +737,14 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
                 val prompt = """
                     Buatlah ringkasan pencapaian tahunan "Fitness Wrapped" untuk $name di tahun $year.
                     Gunakan gaya bahasa yang sangat keren, estetik, puitis, dan penuh semangat (seperti narasi atlet pro).
-                    Data tahun $year:
+                    
+                    DATA PENCAPAIAN TAHUN $year (Total Sesi Latihan selama setahun):
                     - Total Latihan: $adjustedTotal Sesi
-                    - Leg Day: $adjustedLeg kali
-                    - Push Day: $adjustedPush kali
-                    - Pull Day: $adjustedPull kali
+                    - Leg Day: $adjustedLeg Sesi
+                    - Push Day: $adjustedPush Sesi
+                    - Pull Day: $adjustedPull Sesi
+                    
+                    PENTING: Data di atas adalah JUMLAH SESI (Training Sessions), bukan set.
                     
                     Berikan pesan penutup yang sangat memotivasi untuk tahun berikutnya.
                     Ringkasan harus padat namun berkesan (maksimal 150 kata).
@@ -701,6 +783,9 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
             _isAnalyzing.value = true
             _geminiAdvice.value = "Coach sedang berpikir...\nMenganalisis data latihan Anda..."
             
+            // Small delay to ensure DB data is emitted
+            kotlinx.coroutines.delay(500)
+
             val counts = workoutCounts.value
             val leg = counts.firstOrNull { it.dayType == "LEG" }?.count ?: 0
             val push = counts.firstOrNull { it.dayType == "PUSH" }?.count ?: 0
@@ -754,10 +839,13 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
                 - Telur: $eggs, Ikan: $fish, Pea Protein: $pea.
                 
                 TUGAS UTAMAMU:
-                1. Prioritaskan JADWAL LATIHAN USER HARI INI. Jika jadwalnya "Rest Day", JANGAN suruh user latihan berat, sarankan pemulihan.
-                2. Berikan saran aktivitas spesifik sesuai JAM SEKARANG (Format 24 Jam). Ingat: 02:00 adalah dini hari/pagi buta, 14:00 adalah siang hari.
-                3. Jika jam sekarang adalah jam tidur (23:00 - 04:00), perintahkan user untuk segera tidur.
-                4. Evaluasi asupan protein dan list gerakan yang tertinggal.
+                0. PENTING: Data latihan (Leg: $leg, Push: $push, Pull: $pull) adalah TOTAL SESI LATIHAN yang sudah dilakukan selama berbulan-bulan. JANGAN sebut sebagai "set". Gunakan istilah "Sesi" atau "Latihan".
+                1. Analisis efektivitas JADWAL MINGGUAN LENGKAP USER. Berikan kritik membangun jika polanya kurang optimal (misal: penempatan hari latihan berat yang berdekatan atau kurangnya hari pemulihan).
+                2. Prioritaskan JADWAL LATIHAN USER HARI INI. Jika jadwalnya "Rest Day", JANGAN suruh user latihan berat, sarankan pemulihan aktif atau nutrisi.
+                3. Dukung pilihan user (seperti 2x Leg Day) jika itu memang tujuannya, namun ingatkan pentingnya pemulihan (Recovery) yang pas di antara hari-hari tersebut agar tidak overtraining.
+                4. Berikan saran aktivitas spesifik sesuai JAM SEKARANG (Format 24 Jam). Ingat: 02:00 adalah dini hari/pagi buta, 14:00 adalah siang hari.
+                5. Jika jam sekarang adalah jam tidur (23:00 - 04:00), perintahkan user untuk segera tidur demi pertumbuhan otot.
+                6. Evaluasi asupan protein dan list gerakan yang tertinggal.
                 
                 Gunakan gaya bahasa pelatih profesional yang akrab, singkat, padat, dan memotivasi.
                 Panggil user "$name". Hindari kata basi seperti "ya betul".

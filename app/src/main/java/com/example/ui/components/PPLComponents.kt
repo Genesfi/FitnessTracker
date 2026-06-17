@@ -21,16 +21,28 @@ import com.example.ui.theme.GymSecondary
 @Composable
 fun PPLMenuTabContent(
     checklist: List<ExerciseChecklistItem>,
+    currentDayActivity: String, // Pass current day's activity from WeeklySchedule
+    currentWeekType: Int,
+    viewingWeekType: Int,
+    onWeekTypeChange: (Int) -> Unit,
     onToggle: (ExerciseChecklistItem) -> Unit,
     onReset: () -> Unit,
     onAddExercise: (String) -> Unit,
     onDeleteExercise: (ExerciseChecklistItem) -> Unit
 ) {
-    val categories = listOf(
-        "LEG" to "🦵 Leg Day (Kaki)",
-        "PUSH" to "💪 Push Day (Dorong)",
-        "PULL" to "🦾 Pull Day (Tarik)"
-    )
+    val categories = remember(currentDayActivity) {
+        val allCategories = listOf(
+            "LEG" to "🦵 Leg Day (Kaki)",
+            "PUSH" to "💪 Push Day (Dorong)",
+            "PULL" to "🦾 Pull Day (Tarik)"
+        )
+        
+        // Sort categories so currentDayActivity comes first
+        allCategories.sortedByDescending { (id, _) ->
+            currentDayActivity.contains(id, ignoreCase = true) || 
+            (id == "LEG" && currentDayActivity.contains("Kaki", ignoreCase = true))
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -52,12 +64,48 @@ fun PPLMenuTabContent(
             )
             
             TextButton(onClick = onReset) {
-                Text("Reset", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+                Text("Reset Checklist", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+            }
+        }
+
+        // Week Selector Tabs
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+        ) {
+            Row(
+                modifier = Modifier.padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                listOf(1 to "Minggu Ganjil (1/3)", 2 to "Minggu Genap (2/4/5)").forEach { (type, label) ->
+                    val isSelected = viewingWeekType == type
+                    val isCurrent = currentWeekType == type
+                    
+                    Button(
+                        onClick = { onWeekTypeChange(type) },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent,
+                            contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                        ),
+                        contentPadding = PaddingValues(vertical = 8.dp)
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(label, fontSize = 11.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
+                            if (isCurrent) {
+                                Text("(Minggu Ini)", fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
             }
         }
 
         categories.forEach { (catId, catName) ->
-            val items = checklist.filter { it.category == catId }
+            // Filter by category and weekType (0 means Always, otherwise match viewingWeekType)
+            val items = checklist.filter { it.category == catId && (it.weekType == 0 || it.weekType == viewingWeekType) }
             
             Card(
                 modifier = Modifier.fillMaxWidth(),

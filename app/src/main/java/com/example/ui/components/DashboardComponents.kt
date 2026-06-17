@@ -194,11 +194,11 @@ fun DashboardTabContent(
                 // Dynamic monthly statistics based on real workout sessions
                 val monthNames = listOf("Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des")
                 
-                // Show last 3 months dynamically
-                val currentSessionsCount = workoutSessions.size
                 // 31 is the initial legacy count (16 Leg + 8 Push + 7 Pull)
-                val totalLegacySessions = (totalSessions - currentSessionsCount).coerceIn(0, 31)
-                
+                // We calculate how many "real" sessions we have vs what's reported in total counts
+                val currentSessionsCount = workoutSessions.size
+                val totalLegacySessions = (totalSessions - currentSessionsCount).coerceAtLeast(0)
+
                 for (i in 2 downTo 0) {
                     val calendar = Calendar.getInstance()
                     calendar.add(Calendar.MONTH, -i)
@@ -216,7 +216,21 @@ fun DashboardTabContent(
                     if (mYear == 2026 && totalLegacySessions > 0) {
                         if (mIndex == 3) monthSessions += 16 // April: 16 sessions
                         if (mIndex == 4) monthSessions += 10 // May: 10 sessions
-                        if (mIndex == 5) monthSessions += (totalLegacySessions - 26).coerceAtLeast(0) // Pull Legacy was 7
+                        if (mIndex == 5) {
+                            // June gets the remainder, but we cap it to make sure 
+                            // the bar doesn't exceed the logical total session count
+                            val juneLegacy = (totalLegacySessions - 26).coerceAtLeast(0)
+                            monthSessions += juneLegacy
+                        }
+                    }
+                    
+                    // Final safety: A single month's bar shouldn't look like it has 
+                    // more sessions than the total accumulated score unless 
+                    // the user has actually logged that many sessions.
+                    val displaySessions = if (mYear == 2026 && mIndex >= 3 && mIndex <= 5) {
+                        monthSessions.coerceAtMost(totalSessions)
+                    } else {
+                        monthSessions
                     }
                     
                     Column(modifier = Modifier.padding(vertical = 4.dp)) {
@@ -225,10 +239,10 @@ fun DashboardTabContent(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(text = "$mName $mYear", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface)
-                            Text(text = "$monthSessions Sesi", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            Text(text = "$displaySessions Sesi", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                         }
                         Spacer(modifier = Modifier.height(4.dp))
-                        val progress = if (monthSessions > 0) (monthSessions / 24f).coerceIn(0f, 1f) else 0f
+                        val progress = if (displaySessions > 0) (displaySessions / 24f).coerceIn(0f, 1f) else 0f
                         LinearProgressIndicator(
                             progress = { progress },
                             modifier = Modifier

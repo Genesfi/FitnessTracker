@@ -34,7 +34,9 @@ fun ProfileTabContent(
     onLoginLocal: (String, String, String) -> Unit,
     onLogout: () -> Unit,
     onUpdateProfile: (String, String, String) -> Unit,
-    onSyncCloud: () -> Unit = {}
+    onSyncCloud: () -> Unit = {},
+    onManualRestore: () -> Unit = {},
+    onRepairData: () -> Unit = {}
 ) {
     var localName by remember { mutableStateOf("") }
     var localEmail by remember { mutableStateOf("") }
@@ -272,33 +274,87 @@ fun ProfileTabContent(
 
             // Cloud Sync Status Card
             Card(
-                modifier = Modifier.fillMaxWidth().clickable { onSyncCloud() },
+                modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(10.dp)
+                                .clip(CircleShape)
+                                .background(if (syncStatus.contains("Gagal")) Color.Red else Color(0xFF22C55E))
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Auto-Sync Google Cloud",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = syncStatus,
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = onSyncCloud,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f), contentColor = MaterialTheme.colorScheme.primary)
+                        ) {
+                            Text("Backup Sekarang", fontSize = 11.sp)
+                        }
+                        Button(
+                            onClick = onManualRestore,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.1f), contentColor = MaterialTheme.colorScheme.secondary)
+                        ) {
+                            Text("Pulihkan Data", fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
+
+            // Data Repair Tool Card
+            Card(
+                modifier = Modifier.fillMaxWidth().clickable { onRepairData() },
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.1f)),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.2f))
             ) {
                 Row(
                     modifier = Modifier.padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(10.dp)
-                            .clip(CircleShape)
-                            .background(if (syncStatus.contains("Gagal")) Color.Red else Color(0xFF22C55E))
-                    )
+                    Text("🛠️", fontSize = 20.sp)
                     Column {
                         Text(
-                            text = "Auto-Sync Google Cloud",
+                            text = "Perbaiki Data Sesi Manual",
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
+                            color = MaterialTheme.colorScheme.error
                         )
                         Text(
-                            text = syncStatus,
+                            text = "Gunakan jika data sesi Anda terhapus atau salah.",
                             fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.7f)
                         )
                     }
                 }

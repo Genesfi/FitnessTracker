@@ -29,6 +29,7 @@ class WorkoutRepository(private val dao: WorkoutDao) {
     val allExerciseChecklist: Flow<List<ExerciseChecklistItem>> = dao.getAllExerciseChecklist()
     val allWorkoutSessions: Flow<List<WorkoutSession>> = dao.getAllWorkoutSessions()
     val weeklySchedule: Flow<List<WeeklySchedule>> = dao.getWeeklySchedule()
+    val allChatHistory: Flow<List<ChatHistory>> = dao.getAllChatHistory()
 
     fun getProteinIntakeForDate(date: String): Flow<List<ProteinIntake>> = dao.getProteinIntakeForDate(date)
 
@@ -62,34 +63,41 @@ class WorkoutRepository(private val dao: WorkoutDao) {
         val existingChecklist = dao.getAllExerciseChecklist().firstOrNull()
         if (existingChecklist.isNullOrEmpty()) {
             val checklist = listOf(
-                // Push Day
-                ExerciseChecklistItem("Wide to Close Push Up", "PUSH", "Wall Push Up (Regressi)"),
-                ExerciseChecklistItem("Push Up di Atas Kursi", "PUSH", "Incline Push Up"),
-                ExerciseChecklistItem("Close Grip Push Up", "PUSH", "Knee Push Up (Regressi)"),
-                ExerciseChecklistItem("Flys to Hexpress", "PUSH"),
-                ExerciseChecklistItem("Dumbbell Shoulder Press", "PUSH"),
-                ExerciseChecklistItem("Dumbbell Side Raises", "PUSH"),
-                ExerciseChecklistItem("Overhead Triceps Extension", "PUSH"),
-                ExerciseChecklistItem("Lying Leg Raises", "PUSH"),
+                // MINGGU PERTAMA (Week 1 / Odd)
+                // Push Day (Week 1)
+                ExerciseChecklistItem("Push Up di Atas Kursi (Incline)", "PUSH", "3 Set", weekType = 1),
+                ExerciseChecklistItem("Dumbbell Shoulder Press", "PUSH", "3 Set", weekType = 1),
+                ExerciseChecklistItem("Overhead Triceps Extension", "PUSH", "3 Set", weekType = 1),
+                ExerciseChecklistItem("Lying Leg Raises", "PUSH", "3 Set", weekType = 1),
                 
-                // Pull Day
-                ExerciseChecklistItem("Dumbbell Row", "PULL"),
-                ExerciseChecklistItem("Dumbbell Deadlift", "PULL"),
-                ExerciseChecklistItem("Dumbbell Pull Over", "PULL"),
-                ExerciseChecklistItem("Reverse Flys", "PULL"),
-                ExerciseChecklistItem("21s", "PULL"),
-                ExerciseChecklistItem("Hammer Curls", "PULL"),
-                ExerciseChecklistItem("Seated Curls", "PULL"),
-                ExerciseChecklistItem("Plank", "PULL"),
+                // Pull Day (Week 1)
+                ExerciseChecklistItem("Dumbbell Row", "PULL", "4 Set", weekType = 1),
+                ExerciseChecklistItem("Reverse Flys", "PULL", "3 Set", weekType = 1),
+                ExerciseChecklistItem("Hammer Curls", "PULL", "3 Set", weekType = 1),
+                ExerciseChecklistItem("Plank", "PULL", "3 Set", weekType = 1),
 
-                // Leg Day
-                ExerciseChecklistItem("Squats", "LEG"),
-                ExerciseChecklistItem("Stiff Legged Deadlift", "LEG"),
-                ExerciseChecklistItem("Goblet Squats", "LEG"),
-                ExerciseChecklistItem("Alternating Lunges", "LEG"),
-                ExerciseChecklistItem("Front Squats", "LEG"),
-                ExerciseChecklistItem("Lying Leg Curls", "LEG"),
-                ExerciseChecklistItem("Standing Calf Raises", "LEG")
+                // Leg Day (Week 1)
+                ExerciseChecklistItem("Goblet Squats", "LEG", "3 Set", weekType = 1),
+                ExerciseChecklistItem("Alternating Lunges", "LEG", "3 Set", weekType = 1),
+                ExerciseChecklistItem("Standing Calf Raises", "LEG", "3 Set", weekType = 1),
+
+                // MINGGU KEDUA (Week 2 / Even)
+                // Push Day (Week 2)
+                ExerciseChecklistItem("Close Grip / Knee Push Up", "PUSH", "3 Set", weekType = 2),
+                ExerciseChecklistItem("Flys to Hexpress", "PUSH", "3 Set", weekType = 2),
+                ExerciseChecklistItem("Dumbbell Side Raises", "PUSH", "3 Set", weekType = 2),
+                ExerciseChecklistItem("Lying Leg Raises", "PUSH", "3 Set", weekType = 2),
+
+                // Pull Day (Week 2)
+                ExerciseChecklistItem("Dumbbell Pull Over", "PULL", "4 Set", weekType = 2),
+                ExerciseChecklistItem("Seated Curls", "PULL", "3 Set", weekType = 2),
+                ExerciseChecklistItem("21s (Bicep)", "PULL", "2 Set", weekType = 2),
+                ExerciseChecklistItem("Plank", "PULL", "3 Set", weekType = 2),
+
+                // Leg Day (Week 2)
+                ExerciseChecklistItem("Front Squats", "LEG", "3 Set", weekType = 2),
+                ExerciseChecklistItem("Stiff Legged Deadlift", "LEG", "3 Set", weekType = 2),
+                ExerciseChecklistItem("Lying Leg Curls", "LEG", "3 Set", weekType = 2)
             )
             dao.insertExerciseChecklist(checklist)
         }
@@ -156,16 +164,14 @@ class WorkoutRepository(private val dao: WorkoutDao) {
         dao.insertOrUpdateCount(WorkoutCount("PUSH", "Push Day (Dada/Bahu/Trisep)", "💪", targetPush))
         dao.insertOrUpdateCount(WorkoutCount("PULL", "Pull Day (Punggung/Bisep)", "🦾", targetPull))
         
-        // 2. Clear sessions for current month to fix corruption
-        val calendar = Calendar.getInstance()
-        calendar.set(Calendar.DAY_OF_MONTH, 1)
-        calendar.set(Calendar.HOUR_OF_DAY, 0)
-        calendar.set(Calendar.MINUTE, 0)
-        val startOfMonth = calendar.timeInMillis
-        dao.deleteSessionsInRange(startOfMonth, System.currentTimeMillis())
+        // 2. Clear ALL existing sessions to reset history to a clean state
+        dao.deleteAllSessions()
         
-        // 3. Add exactly 1 session for June if requested (as per user's "correct" state)
+        // 3. Add exactly 1 session for June to keep it "Active"
         dao.insertWorkoutSession(WorkoutSession(dayType = "PULL", date = System.currentTimeMillis()))
+        
+        // 4. Add history log
+        addHistoryLog("Repair: Data sesi total diperbaiki ke L:$targetLeg, P:$targetPush, PL:$targetPull. Riwayat sesi detail di-reset.")
 
         syncToCloud()
     }
@@ -206,13 +212,14 @@ class WorkoutRepository(private val dao: WorkoutDao) {
         dao.insertOrUpdateCount(current.copy(count = newCount))
         
         if (diff > 0) {
-            // Add sessions to current month/year
-            repeat(diff) {
+            // Add sessions to current month/year (Safety limit: max 100 at once)
+            val toAdd = diff.coerceAtMost(100)
+            repeat(toAdd) {
                 dao.insertWorkoutSession(WorkoutSession(dayType = dayType, date = System.currentTimeMillis()))
             }
         } else if (diff < 0) {
             // Remove sessions (newest first)
-            val toRemove = -diff
+            val toRemove = (-diff).coerceAtMost(100)
             val sessions = dao.getSessionsByDayType(dayType, toRemove)
             sessions.forEach { dao.deleteSessionById(it.id) }
         }
@@ -246,8 +253,19 @@ class WorkoutRepository(private val dao: WorkoutDao) {
                 // 2. Restore Workout Counts
                 val countsData = data["counts"] as? Map<String, Long>
                 countsData?.forEach { (dayType, count) ->
-                    val current = dao.getCountByDayType(dayType)
-                    if (current != null) dao.insertOrUpdateCount(current.copy(count = count.toInt()))
+                    val name = when(dayType) {
+                        "LEG" -> "Leg Day (Kaki)"
+                        "PUSH" -> "Push Day (Dada/Bahu/Trisep)"
+                        "PULL" -> "Pull Day (Punggung/Bisep)"
+                        else -> "Workout"
+                    }
+                    val emoji = when(dayType) {
+                        "LEG" -> "🦵"
+                        "PUSH" -> "💪"
+                        "PULL" -> "🦾"
+                        else -> "🏋️"
+                    }
+                    dao.insertOrUpdateCount(WorkoutCount(dayType, name, emoji, count.toInt()))
                 }
 
                 // 3. Restore Exercise Checklist
@@ -257,7 +275,8 @@ class WorkoutRepository(private val dao: WorkoutDao) {
                         name = it["name"] as String,
                         category = it["category"] as String,
                         note = it["note"] as String,
-                        isCompleted = it["isCompleted"] as Boolean
+                        isCompleted = it["isCompleted"] as Boolean,
+                        weekType = (it["weekType"] as? Long)?.toInt() ?: 0
                     )
                 }?.let { dao.insertExerciseChecklist(it) }
 
@@ -295,6 +314,15 @@ class WorkoutRepository(private val dao: WorkoutDao) {
                     ))
                 }
 
+                // 7. Restore Workout Sessions (if available)
+                val sessionsData = data["sessions"] as? List<Map<String, Any>>
+                sessionsData?.forEach {
+                    dao.insertWorkoutSession(WorkoutSession(
+                        dayType = it["dayType"] as String,
+                        date = it["date"] as Long
+                    ))
+                }
+
                 _syncStatus.value = "Data Berhasil Dipulihkan"
                 addHistoryLog("Sync: Berhasil mengunduh pencadangan penuh dari Cloud.")
             } else {
@@ -318,11 +346,12 @@ class WorkoutRepository(private val dao: WorkoutDao) {
             val reminders = dao.getAllReminders().firstOrNull() ?: emptyList()
             val schedule = dao.getWeeklySchedule().firstOrNull() ?: emptyList()
             val proteinIntakes = dao.getAllProteinIntake()
+            val sessions = dao.getAllWorkoutSessions().firstOrNull() ?: emptyList()
 
             // Construct backup map
             val backupMap = mutableMapOf<String, Any>(
                 "counts" to counts.associate { it.dayType to it.count },
-                "checklist" to checklist.map { mapOf("name" to it.name, "category" to it.category, "note" to it.note, "isCompleted" to it.isCompleted) },
+                "checklist" to checklist.map { mapOf("name" to it.name, "category" to it.category, "note" to it.note, "isCompleted" to it.isCompleted, "weekType" to it.weekType) },
                 "reminders" to reminders.map { mapOf("time" to it.time, "label" to it.label, "days" to it.days, "isActive" to it.isActive) },
                 "schedule" to schedule.map { mapOf("dayName" to it.dayName, "activity" to it.activity, "order" to it.order) },
                 "protein" to proteinIntakes.map { 
@@ -335,6 +364,7 @@ class WorkoutRepository(private val dao: WorkoutDao) {
                         "date" to it.date
                     )
                 },
+                "sessions" to sessions.map { mapOf("dayType" to it.dayType, "date" to it.date) },
                 "last_updated" to System.currentTimeMillis()
             )
 
@@ -382,6 +412,14 @@ class WorkoutRepository(private val dao: WorkoutDao) {
     suspend fun updateWeeklyActivity(dayName: String, activity: String) {
         dao.updateWeeklyActivity(dayName, activity)
         syncToCloud()
+    }
+
+    suspend fun addChatHistory(message: ChatHistory) {
+        dao.insertChatHistory(message)
+    }
+
+    suspend fun clearChatHistory() {
+        dao.deleteAllChatHistory()
     }
 
     suspend fun getSecretLockDirect(): AppSecretLock? {

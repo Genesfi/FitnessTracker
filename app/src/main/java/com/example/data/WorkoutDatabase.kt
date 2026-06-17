@@ -45,12 +45,13 @@ data class AppSecretLock(
     val isLocked: Boolean = true
 )
 
-@Entity(tableName = "exercise_checklist")
+@Entity(tableName = "exercise_checklist", primaryKeys = ["name", "weekType"])
 data class ExerciseChecklistItem(
-    @PrimaryKey val name: String,
+    val name: String,
     val category: String, // "LEG", "PUSH", "PULL"
     val note: String = "",
-    val isCompleted: Boolean = false
+    val isCompleted: Boolean = false,
+    val weekType: Int = 0 // 0: Always, 1: Odd (Week 1/3), 2: Even (Week 2/4)
 )
 
 @Entity(
@@ -79,6 +80,15 @@ data class WeeklySchedule(
     @PrimaryKey val dayName: String, // "Senin", "Selasa", etc.
     val activity: String,
     val order: Int
+)
+
+@Entity(tableName = "chat_history")
+data class ChatHistory(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val text: String,
+    val isUser: Boolean,
+    val isError: Boolean = false,
+    val timestamp: Long = System.currentTimeMillis()
 )
 
 @Dao
@@ -195,6 +205,16 @@ interface WorkoutDao {
 
     @Query("UPDATE weekly_schedule SET activity = :activity WHERE dayName = :dayName")
     suspend fun updateWeeklyActivity(dayName: String, activity: String)
+
+    // Chat History
+    @Query("SELECT * FROM chat_history ORDER BY timestamp ASC")
+    fun getAllChatHistory(): Flow<List<ChatHistory>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertChatHistory(message: ChatHistory)
+
+    @Query("DELETE FROM chat_history")
+    suspend fun deleteAllChatHistory()
 }
 
 @Database(
@@ -206,9 +226,10 @@ interface WorkoutDao {
         ExerciseChecklistItem::class,
         ProteinIntake::class,
         WorkoutSession::class,
-        WeeklySchedule::class
+        WeeklySchedule::class,
+        ChatHistory::class
     ],
-    version = 5,
+    version = 7,
     exportSchema = false
 )
 abstract class WorkoutDatabase : RoomDatabase() {

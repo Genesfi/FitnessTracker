@@ -23,6 +23,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.Calendar
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import com.google.android.gms.auth.api.signin.GoogleSignIn
@@ -59,6 +62,8 @@ fun WorkoutScreen(
     val reminders by viewModel.reminders.collectAsStateWithLifecycle()
     val lockState by viewModel.lockState.collectAsStateWithLifecycle()
     val checklist by viewModel.exerciseChecklist.collectAsStateWithLifecycle()
+    val currentWeekType by viewModel.currentWeekType.collectAsStateWithLifecycle()
+    val viewingWeekType by viewModel.viewingWeekType.collectAsStateWithLifecycle()
     val protein by viewModel.proteinIntake.collectAsStateWithLifecycle()
     val sessions by viewModel.workoutSessions.collectAsStateWithLifecycle()
     val weeklySchedule by viewModel.weeklySchedule.collectAsStateWithLifecycle()
@@ -86,6 +91,7 @@ fun WorkoutScreen(
     var showChangePinDialog by remember { mutableStateOf(false) }
     var showAddExerciseDialog by remember { mutableStateOf<String?>(null) }
     var showDirectEditDialog by remember { mutableStateOf<WorkoutCount?>(null) }
+    var showRepairDataDialog by remember { mutableStateOf(false) }
     var showAddReminderDialog by remember { mutableStateOf(false) }
 
     val snackbarHostState = remember { SnackbarHostState() }
@@ -207,17 +213,28 @@ fun WorkoutScreen(
                             }
                         }
                     )
-                    WorkoutTab.PPL_MENU -> PPLMenuTabContent(
-                        checklist = checklist,
-                        onToggle = { viewModel.updateExerciseChecklist(it) },
-                        onReset = { viewModel.resetExerciseChecklist() },
-                        onAddExercise = { showAddExerciseDialog = it },
-                        onDeleteExercise = { viewModel.deleteExercise(it) }
-                    )
+                    WorkoutTab.PPL_MENU -> {
+                        val todayName = SimpleDateFormat("EEEE", Locale("id", "ID")).format(System.currentTimeMillis())
+                        val scheduleData by viewModel.weeklySchedule.collectAsStateWithLifecycle()
+                        val todayActivity = scheduleData.find { it.dayName == todayName }?.activity ?: ""
+                        
+                        PPLMenuTabContent(
+                            checklist = checklist,
+                            currentDayActivity = todayActivity,
+                            currentWeekType = currentWeekType,
+                            viewingWeekType = viewingWeekType,
+                            onWeekTypeChange = { viewModel.setViewingWeekType(it) },
+                            onToggle = { viewModel.updateExerciseChecklist(it) },
+                            onReset = { viewModel.resetExerciseChecklist() },
+                            onAddExercise = { showAddExerciseDialog = it },
+                            onDeleteExercise = { viewModel.deleteExercise(it) }
+                        )
+                    }
                     WorkoutTab.AI_COACH -> AICoachChatTabContent(
                         messages = messages,
                         isAnalyzing = isAnalyzing,
-                        onSendMessage = { viewModel.sendMessage(it) }
+                        onSendMessage = { viewModel.sendMessage(it) },
+                        onClearChat = { viewModel.clearChat() }
                     )
                     WorkoutTab.PROTEIN -> ProteinIntakeTabContent(
                         intake = protein,
@@ -255,7 +272,9 @@ fun WorkoutScreen(
                         onLoginLocal = { email, name, avatar -> viewModel.loginSimulatedLocal(email, name, avatar) },
                         onLogout = { viewModel.logoutUser(context) },
                         onUpdateProfile = { n, e, a -> viewModel.updateProfile(n, e, a) },
-                        onSyncCloud = { viewModel.syncData() }
+                        onSyncCloud = { viewModel.syncData() },
+                        onManualRestore = { viewModel.restoreFromCloud() },
+                        onRepairData = { showRepairDataDialog = true }
                     )
                 }
             }
@@ -291,9 +310,19 @@ fun WorkoutScreen(
         AddExerciseDialog(
             category = showAddExerciseDialog!!,
             onDismiss = { showAddExerciseDialog = null },
-            onConfirm = { name, note ->
-                viewModel.addExercise(name, showAddExerciseDialog!!, note)
+            onConfirm = { name, note, weekType ->
+                viewModel.addExercise(name, showAddExerciseDialog!!, note, weekType)
                 showAddExerciseDialog = null
+            }
+        )
+    }
+
+    if (showRepairDataDialog) {
+        RepairDataDialog(
+            onDismiss = { showRepairDataDialog = false },
+            onConfirm = { leg, push, pull ->
+                viewModel.repairData(leg, push, pull)
+                showRepairDataDialog = false
             }
         )
     }
@@ -399,10 +428,11 @@ fun PinDialog(
 fun AddExerciseDialog(
     category: String,
     onDismiss: () -> Unit,
-    onConfirm: (String, String) -> Unit
+    onConfirm: (String, String, Int) -> Unit
 ) {
     var name by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
+    var selectedWeekType by remember { mutableStateOf(0) } // 0: All, 1: Odd, 2: Even
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -422,11 +452,26 @@ fun AddExerciseDialog(
                     label = { Text("Catatan Beban/Tips (Opsional)") },
                     placeholder = { Text("cth: Fokus tempo lambat") }
                 )
+                
+                Text("Pilih Jadwal Minggu:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    listOf(0 to "Tiap Minggu", 1 to "Ganjil", 2 to "Genap").forEach { (type, label) ->
+                        FilterChip(
+                            selected = selectedWeekType == type,
+                            onClick = { selectedWeekType = type },
+                            label = { Text(label, fontSize = 10.sp) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
             }
         },
         confirmButton = {
             Button(
-                onClick = { if (name.isNotBlank()) onConfirm(name, note) },
+                onClick = { if (name.isNotBlank()) onConfirm(name, note, selectedWeekType) },
                 colors = ButtonDefaults.buttonColors(containerColor = GymPrimary)
             ) {
                 Text("Simpan")
@@ -476,6 +521,67 @@ fun DirectEditCountDialog(
     )
 }
 
+@Composable
+fun RepairDataDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (Int, Int, Int) -> Unit
+) {
+    var legText by remember { mutableStateOf("") }
+    var pushText by remember { mutableStateOf("") }
+    var pullText by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("🛠️ Perbaiki Data Sesi Manual") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "Masukkan jumlah total sesi yang hilang untuk setiap kategori. Ini akan menimpa data saat ini.",
+                    fontSize = 12.sp,
+                    color = Color.Gray
+                )
+                OutlinedTextField(
+                    value = legText,
+                    onValueChange = { if (it.all { c -> c.isDigit() }) legText = it },
+                    label = { Text("Total Sesi Leg Day") },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("cth: 16") }
+                )
+                OutlinedTextField(
+                    value = pushText,
+                    onValueChange = { if (it.all { c -> c.isDigit() }) pushText = it },
+                    label = { Text("Total Sesi Push Day") },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("cth: 10") }
+                )
+                OutlinedTextField(
+                    value = pullText,
+                    onValueChange = { if (it.all { c -> c.isDigit() }) pullText = it },
+                    label = { Text("Total Sesi Pull Day") },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("cth: 11") }
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { 
+                    onConfirm(
+                        legText.toIntOrNull() ?: 0,
+                        pushText.toIntOrNull() ?: 0,
+                        pullText.toIntOrNull() ?: 0
+                    )
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+            ) {
+                Text("Perbaiki Sekarang")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Batal") }
+        }
+    )
+}
 @Composable
 fun AddReminderDialog(
     onDismiss: () -> Unit,
